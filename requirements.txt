@@ -1,0 +1,6 @@
+streamlit
+libsql>=0.1.0
+pandas
+numpy
+matplotlib
+pytz
