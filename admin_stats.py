@@ -24,8 +24,35 @@ def _conn():
     return c
 
 def _read_df(sql: str, params: tuple = ()):
-    with closing(_conn()) as conn:
-        return pd.read_sql_query(sql, conn, params=params)
+    from db import get_connection
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+
+    # --- NUEVO: autocast numérico en columnas mayormente numéricas ---
+    def _mostly_numeric(s: pd.Series, thresh: float = 0.7) -> bool:
+        nn = s.dropna()
+        if len(nn) == 0:
+            return False
+        ok = 0
+        for v in nn:
+            try:
+                float(str(v).replace(",", "."))  # por si vinieran comas
+                ok += 1
+            except Exception:
+                pass
+        return ok / len(nn) >= thresh
+
+    for c in df.columns:
+        if df[c].dtype == object and _mostly_numeric(df[c]):
+            df[c] = pd.to_numeric(df[c].astype(str).str.replace(",", ".", regex=False), errors="coerce")
+
+    return df
 
 def _season_labels() -> List[str]:
     try:
