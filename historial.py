@@ -15,7 +15,8 @@ import streamlit as st
 DB_PATH = Path(__file__).with_name("elo_futbol.db")
 
 def get_conn():
-    return get_connection())
+    from db import get_connection as _gc
+    return _gc()
 
 def read_sql_df(query: str, params: tuple = ()):
     with closing(get_conn()) as conn:

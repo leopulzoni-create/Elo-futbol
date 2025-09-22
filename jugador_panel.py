@@ -13,7 +13,8 @@ TZ_AR = pytz.timezone("America/Argentina/Buenos_Aires")
 
 
 def get_connection():
-    conn = get_connection()
+    from db import get_connection as _gc
+    return _gc()
 
     return conn
 

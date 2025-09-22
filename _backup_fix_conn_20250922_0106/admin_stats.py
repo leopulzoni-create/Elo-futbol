@@ -18,7 +18,8 @@ DB_NAME = "elo_futbol.db"
 # Conexión y utilidades
 # -----------------------
 def _conn():
-    c = get_connection()
+    from db import get_connection as _gc
+    return _gc()
 
     return c
 

@@ -1,10 +1,16 @@
 # auth.py
+def _to_bool(val):
+    if val is None:
+        return False
+    s = str(val).strip().lower()
+    return s in ("1","true","t","yes","y","si","sí")
+
 def verify_user(username, password):
     from db import get_connection
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM usuarios WHERE username = ? LIMIT 1",
+            "SELECT id, username, password, rol, is_admin FROM usuarios WHERE username = ? LIMIT 1",
             (username,)
         )
         row = cur.fetchone()
@@ -20,15 +26,13 @@ def verify_user(username, password):
     # if row.get("password") != password:
     #     return None
 
-    # Normalización de claves:
-    is_admin = row.get("is_admin")
-    # Acepta 1/"1"/True
-    is_admin_bool = str(is_admin).lower() in ("1", "true", "t", "yes") if is_admin is not None else False
-    rol = (row.get("rol") or ("admin" if is_admin_bool else "jugador")).lower()
+    # Normalización: que is_admin mande
+    is_admin_bool = _to_bool(row.get("is_admin")) or (str(row.get("rol") or "").strip().lower() == "admin")
+    rol = "admin" if is_admin_bool else "jugador"
 
     return {
         "id": row["id"],
         "username": row["username"],
-        "is_admin": 1 if rol == "admin" else 0,
-        "rol": rol
+        "is_admin": 1 if is_admin_bool else 0,
+        "rol": rol,
     }

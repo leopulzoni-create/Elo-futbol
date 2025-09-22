@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 DB_NAME = "elo_futbol.db"
 
 def _conn():
-    c = get_connection()
+    from db import get_connection as _gc
+    return _gc()
 
     return c
 
