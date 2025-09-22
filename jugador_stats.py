@@ -1,38 +1,47 @@
-from db import get_connection
 # jugador_stats.py
-# Panel de estadísticas del jugador (por temporada):
+# Panel de estadísticas del jugador (por temporada)
 # - Cabecera visual (opción A): 6 tarjetas + barra apilada 100% W/E/D.
-#   * WinRate ahora es W/PJ (cuenta empates en el denominador).
-# - Tendencia de desempeño (ELO difuso, sin mostrar valor exacto).
-# - Comparativas: Rivales frecuentes (con "peor rival" por ventaja) y Compañeros frecuentes (mejor compañero ≥10).
-# - Últimos 10 resultados con día e ícono.
-# - Podios (por temporada específica): Más partidos, Mejor rendimiento 3/1/0 (min 15 PJ),
-#   Mayor mejora ΔELO (min 15 PJ, se muestra +N pts), Dupla del año (≥10; medalla a ambos).
-# - Colección de medallas: solo medallas obtenidas.
-#   * Si hay season_awards finalizados: muestra medallas definitivas con año.
-#   * Si no finalizada: muestra solo si estás en podio hoy (provisional, con año).
-#
-# Requisitos de DB existentes: partidos, partido_jugadores, jugadores, historial_elo.
-# Tabla nueva (creación pasiva): season_awards.
+# - Tendencia de desempeño (ELO difuso).
+# - Comparativas: Rivales y Compañeros frecuentes.
+# - Últimos 10 resultados.
+# - Podios por temporada + colección de medallas.
 
-from __future__ import annotations
+from typing import Any, Dict, List, Optional, Tuple
 import streamlit as st
-import sqlite3
 from datetime import date, datetime
 import math
 import json
 import matplotlib.pyplot as plt
 
-DB_NAME = "elo_futbol.db"
-
 # ======================
 # Conexión / helpers DB
 # ======================
 def _get_conn():
+    # Unificamos la conexión (SQLite local o Turso)
     from db import get_connection as _gc
     return _gc()
 
-    return conn
+def _fetchall_dicts(cur):
+    rows = cur.fetchall()
+    if not rows:
+        return []
+    cols = [d[0] for d in cur.description] if cur.description else []
+    out = []
+    for r in rows:
+        if isinstance(r, dict):
+            out.append(r)
+        else:
+            out.append({cols[i]: r[i] for i in range(len(cols))})
+    return out
+
+def _fetchone_dict(cur):
+    r = cur.fetchone()
+    if not r:
+        return None
+    if isinstance(r, dict):
+        return r
+    cols = [d[0] for d in cur.description] if cur.description else []
+    return {cols[i]: r[i] for i in range(len(cols))}
 
 def _ensure_awards_table():
     with _get_conn() as conn:
@@ -43,7 +52,7 @@ def _ensure_awards_table():
             category TEXT NOT NULL,     -- 'most_matches' | 'best_points' | 'most_improved' | 'best_duo'
             place INTEGER NOT NULL,     -- 1,2,3
             jugador_id INTEGER NOT NULL,
-            value REAL,                 -- métrica interna (PJ, puntos%, ΔELO, etc.)
+            value REAL,                 -- métrica interna
             meta TEXT,                  -- JSON opcional (p.ej. {"partner_id": 7})
             finalized INTEGER NOT NULL DEFAULT 0,
             awarded_at TEXT,
@@ -80,11 +89,11 @@ def _cancha_label(cancha_id: int | None) -> str:
     with _get_conn() as conn:
         cur = conn.cursor()
         cur.execute("SELECT nombre, direccion FROM canchas WHERE id = ?", (cancha_id,))
-        row = cur.fetchone()
+        row = _fetchone_dict(cur)
         if not row:
             return "Sin asignar"
-        nombre = row["nombre"] or "Sin asignar"
-        direccion = (row["direccion"] or "").strip()
+        nombre = row.get("nombre") or "Sin asignar"
+        direccion = (row.get("direccion") or "").strip()
         return f"{nombre} ({direccion})" if direccion else nombre
 
 def _result_condition_sql(alias: str = "p") -> str:
@@ -97,11 +106,11 @@ def _get_season_range(label: str):
         with _get_conn() as conn:
             cur = conn.cursor()
             cur.execute("SELECT start_date, end_date, finalized FROM seasons WHERE label=? LIMIT 1", (label,))
-            row = cur.fetchone()
+            row = _fetchone_dict(cur)
             if not row:
                 return None
-            start = row["start_date"]
-            end = row["end_date"] or date.today().strftime("%Y-%m-%d")
+            start = row.get("start_date")
+            end = row.get("end_date") or date.today().strftime("%Y-%m-%d")
             return (start, end)
     except Exception:
         return None
@@ -116,7 +125,6 @@ def _season_clause_and_params(temporada: str | None, alias: str = "p"):
         else:
             return f"AND strftime('%Y', {alias}.fecha) = ?", [temporada]
     return "", []
-
 
 def _coarse_ticks(min_val: float, max_val: float, target_ticks: int = 3) -> list[int]:
     # Ticks gruesos para ocultar precisión del ELO (centenas, 3-4 marcas)
@@ -148,11 +156,11 @@ def _years_for_player(jugador_id: int) -> list[str]:
             ORDER BY y DESC
             """, (jugador_id,)
         )
-        ys = [r["y"] for r in cur.fetchall() if r["y"]]
+        ys = [r["y"] for r in _fetchall_dicts(cur) if r.get("y")]
         if ys:
             return ys
         cur.execute("SELECT DISTINCT substr(fecha,1,4) AS y FROM partidos ORDER BY y DESC")
-        return [r["y"] for r in cur.fetchall() if r["y"]]
+        return [r["y"] for r in _fetchall_dicts(cur) if r.get("y")]
 
 def _fetch_my_results(jugador_id: int, temporada: str | None):
     # Devuelve detalle (orden cronológico), secuencia G/E/P y totales W/D/L
@@ -172,12 +180,14 @@ def _fetch_my_results(jugador_id: int, temporada: str | None):
             ORDER BY datetime(p.fecha), p.id
             """, (jugador_id, *season_params)
         )
-        rows = cur.fetchall()
+        rows = _fetchall_dicts(cur)
 
     seq, detalle = [], []
     w = l = d = 0
     for r in rows:
-        ganador, dif, mi = r["ganador"], r["diferencia_gol"], r["mi_equipo"]
+        ganador = r.get("ganador")
+        dif = r.get("diferencia_gol")
+        mi = r.get("mi_equipo")
         if ganador is None and (dif is None or int(dif) == 0):
             res = "E"; d += 1
         else:
@@ -187,7 +197,7 @@ def _fetch_my_results(jugador_id: int, temporada: str | None):
                 res = "P"; l += 1
         seq.append(res)
         detalle.append({
-            "id": r["id"], "fecha": r["fecha"], "cancha_id": r["cancha_id"],
+            "id": r.get("id"), "fecha": r.get("fecha"), "cancha_id": r.get("cancha_id"),
             "resultado": res, "dif": dif, "ganador": ganador
         })
     return detalle, seq, w, d, l
@@ -205,9 +215,17 @@ def _elo_series(jugador_id: int, temporada: str | None):
             ORDER BY datetime(p.fecha), p.id
             """, (jugador_id, *season_params)
         )
-        rows = cur.fetchall()
-    xs = [r["fecha"] for r in rows if r["elo"] is not None]
-    ys = [float(r["elo"]) for r in rows if r["elo"] is not None]
+        rows = _fetchall_dicts(cur)
+    xs, ys = [], []
+    for r in rows:
+        elo = r.get("elo")
+        if elo is None:
+            continue
+        try:
+            ys.append(float(elo))
+            xs.append(str(r.get("fecha")))
+        except Exception:
+            continue
     return xs, ys
 
 # ======================
@@ -256,19 +274,20 @@ def _rivales_stats(jugador_id: int, temporada: str | None, limit: int = 5):
             """,
             (jugador_id, *season_params, jugador_id),
         )
-        rows = [dict(r) for r in cur.fetchall()]
+        rows = _fetchall_dicts(cur)
+
+    # Normalizar numéricos
+    for r in rows:
+        for k in ("jugados_vs", "yo_gane", "empates", "yo_perdi"):
+            v = r.get(k)
+            try:
+                r[k] = int(v) if v is not None else 0
+            except Exception:
+                r[k] = 0
 
     top = rows[:limit]
-    cand_pos = [
-        r for r in rows
-        if (r.get("jugados_vs") or 0) >= 10 and (r.get("yo_perdi") or 0) > (r.get("yo_gane") or 0)
-    ]
-    peor = None
-    if cand_pos:
-        peor = max(
-            cand_pos,
-            key=lambda r: ((r["yo_perdi"] - r["yo_gane"]), r["yo_perdi"], r["jugados_vs"])
-        )
+    cand_pos = [r for r in rows if r["jugados_vs"] >= 10 and r["yo_perdi"] > r["yo_gane"]]
+    peor = max(cand_pos, key=lambda r: (r["yo_perdi"] - r["yo_gane"], r["yo_perdi"], r["jugados_vs"])) if cand_pos else None
     alternativo = max(rows, key=lambda r: (r["yo_perdi"], r["jugados_vs"])) if rows else None
     return top, peor, alternativo
 
@@ -309,24 +328,31 @@ def _companeros_stats(jugador_id: int, temporada: str | None, limit: int = 5):
             """,
             (jugador_id, *season_params, jugador_id),
         )
-        rows = [dict(r) for r in cur.fetchall()]
+        rows = _fetchall_dicts(cur)
+
+    # Normalizar numéricos
+    for r in rows:
+        for k in ("jugados_juntos", "ganados_juntos"):
+            v = r.get(k)
+            try:
+                r[k] = int(v) if v is not None else 0
+            except Exception:
+                r[k] = 0
+        v = r.get("wr_juntos")
+        try:
+            r["wr_juntos"] = float(v) if v is not None else 0.0
+        except Exception:
+            r["wr_juntos"] = 0.0
 
     top = rows[:limit]
-    # mejor compañero: mínimo 10 juntos
     candidatos = [r for r in rows if r["jugados_juntos"] >= 10]
-    mejor = None
-    if candidatos:
-        mejor = max(
-            candidatos,
-            key=lambda r: (r["wr_juntos"] or 0.0, r["ganados_juntos"])
-        )
+    mejor = max(candidatos, key=lambda r: (r["wr_juntos"], r["ganados_juntos"])) if candidatos else None
     return top, mejor
 
 # ======================
 # Duplas (para podio y colección)
 # ======================
 def _rank_best_duo(temporada: str | None, min_juntos: int = 10, top: int = 3):
-    # Duplas del mismo equipo por partido; rendimiento 3/1/0.
     cond = _result_condition_sql("p")
     season_sql, season_params = _season_clause_and_params(temporada, "p")
     with _get_conn() as conn:
@@ -366,10 +392,24 @@ def _rank_best_duo(temporada: str | None, min_juntos: int = 10, top: int = 3):
             LIMIT {top}
             """, (*season_params, min_juntos)
         )
-        return [dict(r) for r in cur.fetchall()]
+        rows = _fetchall_dicts(cur)
+
+    # Normalizar numéricos
+    for r in rows:
+        for k in ("pj", "w", "e", "l", "j1", "j2"):
+            v = r.get(k)
+            try:
+                r[k] = int(v) if v is not None else 0
+            except Exception:
+                r[k] = 0
+        v = r.get("puntos_pct")
+        try:
+            r["puntos_pct"] = float(v) if v is not None else 0.0
+        except Exception:
+            r["puntos_pct"] = 0.0
+    return rows
 
 def _best_duo_for_player(jugador_id: int, temporada: str | None, min_juntos: int = 2):
-    # Mejor dupla (por rendimiento 3/1/0) que incluya al jugador.
     cond = _result_condition_sql("p")
     season_sql, season_params = _season_clause_and_params(temporada, "p")
     with _get_conn() as conn:
@@ -412,8 +452,21 @@ def _best_duo_for_player(jugador_id: int, temporada: str | None, min_juntos: int
             LIMIT 1
             """, (*season_params, jugador_id, jugador_id, min_juntos)
         )
-        row = cur.fetchone()
-        return dict(row) if row else None
+        row = _fetchone_dict(cur)
+        if not row:
+            return None
+        # Normalizar campos clave
+        for k in ("pj", "w", "e", "l", "j1", "j2"):
+            v = row.get(k)
+            try:
+                row[k] = int(v) if v is not None else 0
+            except Exception:
+                row[k] = 0
+        try:
+            row["puntos_pct"] = float(row.get("puntos_pct") or 0.0)
+        except Exception:
+            row["puntos_pct"] = 0.0
+        return row
 
 # ======================
 # Podios
@@ -435,7 +488,11 @@ def _rank_most_matches(temporada: str | None, top: int = 3):
             LIMIT {top}
             """, (*season_params,)
         )
-        return [dict(r) for r in cur.fetchall()]
+        rows = _fetchall_dicts(cur)
+    for r in rows:
+        try: r["pj"] = int(r.get("pj") or 0)
+        except Exception: r["pj"] = 0
+    return rows
 
 def _rank_best_points(temporada: str | None, min_pj: int = 15, top: int = 3):
     cond = _result_condition_sql("p")
@@ -465,7 +522,14 @@ def _rank_best_points(temporada: str | None, min_pj: int = 15, top: int = 3):
             LIMIT {top}
             """, (*season_params, min_pj)
         )
-        return [dict(r) for r in cur.fetchall()]
+        rows = _fetchall_dicts(cur)
+    for r in rows:
+        for k in ("pj", "w", "e", "l"):
+            try: r[k] = int(r.get(k) or 0)
+            except Exception: r[k] = 0
+        try: r["puntos_pct"] = float(r.get("puntos_pct") or 0.0)
+        except Exception: r["puntos_pct"] = 0.0
+    return rows
 
 def _rank_most_improved(temporada: str | None, min_pj: int = 15, top: int = 3):
     # ΔELO = ELO_último - ELO_primero en la temporada; requiere historial_elo.
@@ -484,7 +548,7 @@ def _rank_most_improved(temporada: str | None, min_pj: int = 15, top: int = 3):
             HAVING COUNT(*) >= ?
             """, (*season_params, min_pj)
         )
-        candidatos = [r["jugador_id"] for r in cur.fetchall()]
+        candidatos = [r["jugador_id"] for r in _fetchall_dicts(cur)]
 
         results = []
         for jid in candidatos:
@@ -497,17 +561,20 @@ def _rank_most_improved(temporada: str | None, min_pj: int = 15, top: int = 3):
                 ORDER BY datetime(p.fecha), p.id
                 """, (jid, *season_params)
             )
-            rows = cur.fetchall()
+            rows = _fetchall_dicts(cur)
             if not rows:
                 continue
-            start = rows[0]["elo_antes"] if rows[0]["elo_antes"] is not None else rows[0]["elo_despues"]
-            end   = rows[-1]["elo_despues"] if rows[-1]["elo_despues"] is not None else rows[-1]["elo_antes"]
+            start = rows[0].get("elo_antes") if rows[0].get("elo_antes") is not None else rows[0].get("elo_despues")
+            end   = rows[-1].get("elo_despues") if rows[-1].get("elo_despues") is not None else rows[-1].get("elo_antes")
             if start is None or end is None:
                 continue
-            delta = float(end) - float(start)
+            try:
+                delta = float(end) - float(start)
+            except Exception:
+                continue
             cur.execute("SELECT nombre FROM jugadores WHERE id = ?", (jid,))
-            nombre = (cur.fetchone() or {"nombre":"?"})["nombre"]
-            results.append({"jugador_id": jid, "nombre": nombre, "delta": delta})
+            nr = _fetchone_dict(cur) or {"nombre":"?"}
+            results.append({"jugador_id": jid, "nombre": nr.get("nombre") or "?", "delta": delta})
 
         results.sort(key=lambda x: (x["delta"], x["nombre"]), reverse=True)
         return results[:top]
@@ -580,11 +647,10 @@ def panel_mis_estadisticas(user):
             with _get_conn() as conn:
                 cur = conn.cursor()
                 cur.execute("SELECT label FROM seasons ORDER BY date(start_date) DESC")
-                return [r["label"] for r in cur.fetchall()]
+                return [r["label"] for r in _fetchall_dicts(cur)]
         except Exception:
             return []
 
-    # ...
     labels = _season_labels()
     if labels:
         opts = labels + ["Todas"]
@@ -635,7 +701,7 @@ def panel_mis_estadisticas(user):
         ax.set_xlabel("Fecha")
         ax.set_title("Evolución en el tiempo")
         plt.tight_layout()
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width="stretch")
     else:
         st.info("Aún no hay historial suficiente para graficar la tendencia en esta temporada.")
 
@@ -734,23 +800,23 @@ def panel_mis_estadisticas(user):
             _render_podium(
                 "Más partidos (PJ)",
                 pods["most_matches"],
-                lambda r: f"{r['nombre']} — {int(r['pj'])} PJ"
+                lambda r: f"{r['nombre']} — {int(r.get('pj') or 0)} PJ"
             )
             _render_podium(
                 "Mayor mejora ΔELO",
                 pods["most_improved"],
-                lambda r: f"{r['nombre']} — +{int(round(r['delta']))} pts"
+                lambda r: f"{r['nombre']} — +{int(round(r.get('delta') or 0))} pts"
             )
         with c2:
             _render_podium(
                 "Mejor rendimiento 3/1/0",
                 pods["best_points"],
-                lambda r: f"{r['nombre']} — {int(round((r['puntos_pct'] or 0)*100))}% ({int(r['pj'])} PJ)"
+                lambda r: f"{r['nombre']} — {int(round((r.get('puntos_pct') or 0)*100))}% ({int(r.get('pj') or 0)} PJ)"
             )
             _render_podium(
                 "Dupla del año",
                 pods["best_duo"],
-                lambda r: f"{r['nombre1']} + {r['nombre2']} — {int(round((r['puntos_pct'] or 0)*100))}% ({int(r['pj'])} juntos)"
+                lambda r: f"{r['nombre1']} + {r['nombre2']} — {int(round((r.get('puntos_pct') or 0)*100))}% ({int(r.get('pj') or 0)} juntos)"
             )
 
         st.markdown("---")
@@ -760,11 +826,9 @@ def panel_mis_estadisticas(user):
     # ======================
     st.write("### 🥇 Mi colección de medallas")
 
-    # Helper para ícono según puesto
     def _medal_icon(place: int) -> str:
         return "🥇" if place == 1 else ("🥈" if place == 2 else "🥉")
 
-    # Map labels
     CAT_LABEL = {
         "most_matches": "Más partidos",
         "best_points": "Mejor rendimiento 3/1/0",
@@ -772,35 +836,31 @@ def panel_mis_estadisticas(user):
         "best_duo": "Dupla del año",
     }
 
-    # Mostrar medallas finalizadas si existen:
     with _get_conn() as conn:
         cur = conn.cursor()
         if temporada == "Todas":
-            # Todas las medallas finalizadas del jugador, en cualquier año
             cur.execute("""
                 SELECT season, category, place, jugador_id, value, meta
                 FROM season_awards
                 WHERE finalized = 1 AND jugador_id = ?
                 ORDER BY season DESC, category ASC, place ASC
             """, (jugador_id,))
-            finals = [dict(r) for r in cur.fetchall()]
+            finals = _fetchall_dicts(cur)
         else:
-            # Solo esta temporada
             cur.execute("""
                 SELECT season, category, place, jugador_id, value, meta
                 FROM season_awards
                 WHERE finalized = 1 AND season = ? AND jugador_id = ?
                 ORDER BY category ASC, place ASC
             """, (temporada, jugador_id))
-            finals = [dict(r) for r in cur.fetchall()]
+            finals = _fetchall_dicts(cur)
 
     showed_any = False
     if finals:
         for r in finals:
-            cat = r["category"]; season_val = r["season"]; place = int(r["place"])
+            cat = r.get("category"); season_val = r.get("season"); place = int(r.get("place") or 0)
             label = CAT_LABEL.get(cat, cat)
             extra = ""
-            # Para dupla finalizada, intentar mostrar partner (si fue guardado en meta)
             if cat == "best_duo" and r.get("meta"):
                 try:
                     meta = json.loads(r["meta"])
@@ -809,20 +869,18 @@ def panel_mis_estadisticas(user):
                         with _get_conn() as conn:
                             c2 = conn.cursor()
                             c2.execute("SELECT nombre FROM jugadores WHERE id=?", (pid,))
-                            nr = c2.fetchone()
-                            if nr:
+                            nr = _fetchone_dict(c2)
+                            if nr and nr.get("nombre"):
                                 extra = f" — con {nr['nombre']}"
                 except Exception:
                     pass
             st.success(f"{_medal_icon(place)} {label} ({season_val}){extra}")
             showed_any = True
 
-    # Si no hay finalizadas (o si no hay ninguna para esta temporada), mostrar provisionales SOLO SI está en podio hoy
     if not showed_any:
         if temporada == "Todas":
             st.caption("No tenés medallas finalizadas aún (mostraría todas tus medallas históricas aquí).")
         else:
-            # calcular standings en vivo y ver si está en top3 de algo
             pods_live = {
                 "most_matches": _rank_most_matches(temporada, top=3),
                 "best_points": _rank_best_points(temporada, min_pj=15, top=3),
@@ -830,20 +888,18 @@ def panel_mis_estadisticas(user):
                 "best_duo": _rank_best_duo(temporada, min_juntos=10, top=3),
             }
             provisional_any = False
-            # categorías individuales
             for cat in ["most_matches", "best_points", "most_improved"]:
                 rows = pods_live[cat]
-                pos = next((i+1 for i, r in enumerate(rows) if r["jugador_id"] == jugador_id), None)
+                pos = next((i+1 for i, r in enumerate(rows) if r.get("jugador_id") == jugador_id), None)
                 if pos:
                     st.info(f"{_medal_icon(pos)} {CAT_LABEL[cat]} (provisional, {temporada})")
                     provisional_any = True
-            # dupla del año
             rows = pods_live["best_duo"]
             pos = None; partner_name = None
             for i, r in enumerate(rows):
-                if jugador_id in (r["j1"], r["j2"]):
+                if jugador_id in (r.get("j1"), r.get("j2")):
                     pos = i+1
-                    partner_name = r["nombre2"] if r["j1"] == jugador_id else r["nombre1"]
+                    partner_name = r["nombre2"] if r.get("j1") == jugador_id else r.get("nombre1")
                     break
             if pos:
                 st.info(f"{_medal_icon(pos)} {CAT_LABEL['best_duo']} (provisional, {temporada}) — con {partner_name}")
