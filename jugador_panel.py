@@ -16,8 +16,6 @@ def get_connection():
     from db import get_connection as _gc
     return _gc()
 
-    return conn
-
 
 def _now_ar_str():
     return datetime.now(TZ_AR).strftime("%Y-%m-%d %H:%M:%S")
@@ -221,47 +219,126 @@ def _promote_from_waitlist_if_possible(partido_id):
     return True
 
 
-# ---------- Partidos visibles (con publicar_desde) ----------
-def _partidos_visibles_para_jugador(jugador_id):
-    hoy = date.today().strftime("%Y-%m-%d")
-    ahora_ar = _now_ar_str()
+# ---------- Helpers para detección de columnas y conversión segura ----------
+def _detect_col(conn, table: str, candidates: list[str]) -> str:
+    """
+    Devuelve el primer nombre de columna que exista en `table` entre `candidates`.
+    Si no puede detectar nada, devuelve candidates[0] como fallback.
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute(f"PRAGMA table_info({table})")
+        cols = []
+        for r in cur.fetchall():
+            try:
+                cols.append(r["name"])
+            except Exception:
+                cols.append(r[1])  # (cid, name, type, notnull, dflt, pk)
+        for c in candidates:
+            if c in cols:
+                return c
+    except Exception:
+        pass
+    return candidates[0]
+
+
+# ---------- Partidos visibles (robusto: sin grupos = visible a todos) ----------
+def _partidos_visibles_para_jugador(jugador_id: int):
+    today_iso = date.today().isoformat()
+    now_ar = _now_ar_str()
 
     with get_connection() as conn:
         cur = conn.cursor()
 
-        # grupos del jugador (M2M)
-        cur.execute("SELECT grupo_id FROM jugador_grupos WHERE jugador_id = ?", (jugador_id,))
-        grupos = [r["grupo_id"] for r in cur.fetchall()]
+        # Detectar nombres de columna reales en tablas puente
+        jg_col = _detect_col(conn, "jugador_grupos", ["grupo_id", "group_id", "grupo"])
+        pg_col = _detect_col(conn, "partido_grupos", ["grupo_id", "group_id", "grupo"])
 
-        # fallback legacy (jugadores.grupo_id)
-        if not grupos:
-            cur.execute("SELECT grupo_id FROM jugadores WHERE id = ?", (jugador_id,))
-            row = cur.fetchone()
-            if row and row["grupo_id"]:
-                grupos = [row["grupo_id"]]
+        # Grupos del jugador (tabla M2M)
+        grupos_jugador = []
+        try:
+            cur.execute(f"SELECT {jg_col} FROM jugador_grupos WHERE jugador_id = ?", (jugador_id,))
+            for r in cur.fetchall():
+                try:
+                    grupos_jugador.append(r[jg_col])
+                except Exception:
+                    grupos_jugador.append(r[0])
+        except Exception:
+            pass
 
-        if not grupos:
-            return []
+        # Fallback legacy: jugadores.grupo_id
+        if not grupos_jugador:
+            try:
+                cur.execute("PRAGMA table_info(jugadores)")
+                has_gcol = False
+                for r in cur.fetchall():
+                    try:
+                        nm = r["name"]
+                    except Exception:
+                        nm = r[1]
+                    if nm == "grupo_id":
+                        has_gcol = True
+                        break
+                if has_gcol:
+                    cur.execute("SELECT grupo_id FROM jugadores WHERE id = ?", (jugador_id,))
+                    rr = cur.fetchone()
+                    if rr:
+                        try:
+                            g = rr["grupo_id"]
+                        except Exception:
+                            g = rr[0]
+                        if g is not None:
+                            grupos_jugador = [g]
+            except Exception:
+                pass
 
-        placeholders = ",".join(["?"] * len(grupos))
-        sql = f"""
-            SELECT DISTINCT p.id, p.fecha, p.cancha_id, p.hora, p.tipo, p.ganador, p.diferencia_gol, p.publicar_desde
-            FROM partidos p
-            WHERE p.fecha >= ?
-              AND p.tipo = 'abierto'
-              AND p.ganador IS NULL
-              AND p.diferencia_gol IS NULL
-              AND (p.publicar_desde IS NULL OR p.publicar_desde <= ?)
-              AND EXISTS (
-                    SELECT 1
-                      FROM partido_grupos pg
-                     WHERE pg.partido_id = p.id
-                       AND pg.grupo_id IN ({placeholders})
+        # Clausula de grupos:
+        # - Si el partido NO tiene filas en partido_grupos -> visible para todos.
+        # - Si tiene, debe intersectar con un grupo del jugador.
+        if grupos_jugador:
+            placeholders = ",".join("?" * len(grupos_jugador))
+            group_clause = f"""
+              AND (
+                    NOT EXISTS (SELECT 1 FROM partido_grupos pg WHERE pg.partido_id = p.id)
+                 OR EXISTS (SELECT 1 FROM partido_grupos pg
+                            WHERE pg.partido_id = p.id AND pg.{pg_col} IN ({placeholders}))
               )
-            ORDER BY p.fecha ASC, p.hora ASC, p.id ASC
+            """
+            group_params = tuple(int(x) for x in grupos_jugador)
+        else:
+            group_clause = """
+              AND NOT EXISTS (SELECT 1 FROM partido_grupos pg WHERE pg.partido_id = p.id)
+            """
+            group_params = ()
+
+        # Partidos “disponibles”: próximos, sin resultado, (tipo abierto o null),
+        # respetando publicar_desde (si existe).
+        sql = f"""
+            SELECT
+              p.id, p.fecha, p.cancha_id, p.hora, p.tipo, p.ganador, p.diferencia_gol, p.publicar_desde
+            FROM partidos p
+            LEFT JOIN canchas c ON c.id = p.cancha_id
+            WHERE substr(p.fecha, 1, 10) >= ?
+              AND (p.tipo IS NULL OR p.tipo = 'abierto')
+              AND p.ganador IS NULL
+              AND (p.diferencia_gol IS NULL OR TRIM(p.diferencia_gol) = '')
+              AND (p.publicar_desde IS NULL OR p.publicar_desde <= ?)
+              {group_clause}
+            ORDER BY datetime(p.fecha), p.id
         """
-        cur.execute(sql, [hoy, ahora_ar] + grupos)
-        return _rows_to_dicts(cur.fetchall())
+        params = [today_iso, now_ar] + list(group_params)
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+
+        # Convertir a dict de forma segura con cur.description
+        cols = [d[0] for d in cur.description] if cur.description else []
+        out = []
+        for r in rows:
+            try:
+                out.append(dict(r))
+            except Exception:
+                out.append({cols[i]: r[i] for i in range(len(cols))})
+        return out
 
 
 # ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
