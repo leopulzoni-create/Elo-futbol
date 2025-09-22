@@ -86,8 +86,14 @@ if "user" not in st.session_state:
             st.error("Usuario o contraseña incorrectos")
 
 else:
-    user = st.session_state.user
-    rol = user["rol"]
+    user = st.session_state.get("user") or {}
+    rol = user.get("rol")
+    if rol is None:
+        # deduce rol por is_admin si faltara
+        rol = "admin" if str(user.get("is_admin")).lower() in ("1", "true", "t", "yes") else "jugador"
+        user["rol"] = rol
+        st.session_state.user = user  # guarda la versión normalizada
+
 
     # ==================================================
     # PANEL ADMIN
