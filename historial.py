@@ -1,7 +1,5 @@
+# historial.py (Calendario mejorado 2×N + Historial ELO)
 from db import get_connection
-# historial.py (Calendario mejorado 2×N + Historial ELO) — Python 3.8
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 from typing import Optional
 import calendar
@@ -15,12 +13,44 @@ import streamlit as st
 DB_PATH = Path(__file__).with_name("elo_futbol.db")
 
 def get_conn():
+    # Puente único hacia el adaptador central (SQLite local o Turso)
     from db import get_connection as _gc
     return _gc()
 
 def read_sql_df(query: str, params: tuple = ()):
-    with closing(get_conn()) as conn:
-        return pd.read_sql_query(query, conn, params=params)
+    """
+    Lee filas con el cursor y construye un DataFrame, autocasteando columnas
+    mayormente numéricas a float/int para evitar errores al operar con pandas.
+    """
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+
+    # --- Autocast numérico en columnas mayormente numéricas ---
+    def _mostly_numeric(s: pd.Series, thresh: float = 0.7) -> bool:
+        nn = s.dropna()
+        if len(nn) == 0:
+            return False
+        ok = 0
+        for v in nn:
+            try:
+                float(str(v).replace(",", "."))
+                ok += 1
+            except Exception:
+                pass
+        return ok / len(nn) >= thresh
+
+    for c in df.columns:
+        if df[c].dtype == object and _mostly_numeric(df[c]):
+            df[c] = pd.to_numeric(df[c].astype(str).str.replace(",", ".", regex=False), errors="coerce")
+
+    return df
 
 # =========================
 # SQL base
@@ -168,8 +198,12 @@ def _days_with_match(year: int, month: int):
                   WHERE pj.partido_id = p.id
            )
     """, (str(year), month, today_iso))
-    return set(df["dia"].dropna().astype(int).tolist())
 
+    if df.empty or "dia" not in df.columns:
+        return set()
+
+    dias = pd.to_numeric(df["dia"], errors="coerce")
+    return set(dias.dropna().astype(int).tolist())
 
 def _partidos_by_date(date_iso: str):
     """
@@ -196,7 +230,6 @@ def _partidos_by_date(date_iso: str):
       ORDER BY p.id ASC
     """, (date_iso,))
 
-
 def _render_partidos_detail_for_day(date_iso: str):
     df = _partidos_by_date(date_iso)
     if df.empty:
@@ -212,8 +245,13 @@ def _render_partidos_detail_for_day(date_iso: str):
         with st.expander("Partido #%d — %s — %s" % (pid, fecha, cancha), expanded=False):
             _badge(_oficial_texto(es_ofi), _oficial_color(es_ofi))
             if pd.notna(dif):
-                _badge("Diff: %d" % int(dif), "#334155")
-            if ganador is None and (dif == 0 or str(dif) == "0"):
+                try:
+                    st_diff = int(float(dif))
+                except Exception:
+                    st_diff = None
+                if st_diff is not None:
+                    _badge("Diff: %d" % st_diff, "#334155")
+            if ganador is None and (str(dif) == "0" or str(dif).strip() == "0.0"):
                 resultado_txt = "Empate"
             else:
                 resultado_txt = _ganador_texto_simple(ganador)
@@ -234,7 +272,7 @@ def _render_partidos_detail_for_day(date_iso: str):
                     st.write("**%s %s:** %s" % (_equipo_label(eq), icon, lista))
 
 def _render_month(year: int, month: int, key_prefix: str):
-    cal = calendar.Calendar(firstweekday=0)  # Lunes
+    cal = calendar.Calendar(firstweekday=0)  # 0 = lunes
     weeks = cal.monthdayscalendar(year, month)
     days_with = _days_with_match(year, month)
 
