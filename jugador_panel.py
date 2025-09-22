@@ -454,8 +454,124 @@ def panel_mis_estadisticas(user):
 
 
 def panel_mi_perfil(user):
-    # igual al tuyo anterior (omito por extensión) – mantén tu versión.
-    st.subheader("Mi perfil 👤")
-    st.info("Conserva tu implementación existente aquí (usuario, contraseña, nombre de jugador, etc.).")
+    import streamlit as st
+    from db import get_connection
+    import hashlib
+
+    st.subheader("👤 Mi perfil")
+
+    # Helpers locales para convertir filas a dict (Row o tupla)
+    def _row_to_dict(cur, row):
+        if row is None:
+            return None
+        try:
+            return dict(row)  # sqlite3.Row
+        except Exception:
+            cols = [d[0] for d in cur.description] if cur.description else []
+            return {cols[i]: row[i] for i in range(len(cols))}
+
+    # Normalizar el user que llega
+    try:
+        uid = user.get("id") if isinstance(user, dict) else None
+    except Exception:
+        uid = None
+    if not uid:
+        st.error("No se encontró el ID de tu usuario en sesión.")
+        return
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+
+        # Traer datos del usuario logueado
+        cur.execute("SELECT * FROM usuarios WHERE id = ? LIMIT 1", (uid,))
+        u = _row_to_dict(cur, cur.fetchone())
+        if not u:
+            st.error("No se encontró tu usuario.")
+            return
+
+        jugador_id = u.get("jugador_id")
+        jugador_nombre = None
+        if jugador_id:
+            cur.execute("SELECT nombre FROM jugadores WHERE id = ?", (jugador_id,))
+            j = _row_to_dict(cur, cur.fetchone())
+            jugador_nombre = (j or {}).get("nombre")
+
+        # ───────────────────────────────────────────────
+        # Nombre del jugador
+        # ───────────────────────────────────────────────
+        st.markdown("#### Nombre de jugador")
+        if not jugador_id:
+            st.info("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule para poder editar tu nombre visible.")
+        else:
+            nuevo_nombre = st.text_input(
+                "Nombre visible en las planillas",
+                value=jugador_nombre or "",
+                key="perfil_nombre_visible",
+            )
+            if st.button("Guardar nombre", key="perfil_btn_guardar_nombre"):
+                nombre_ok = (nuevo_nombre or "").strip()
+                if not nombre_ok:
+                    st.warning("Ingresá un nombre válido.")
+                else:
+                    cur.execute("UPDATE jugadores SET nombre = ? WHERE id = ?", (nombre_ok, jugador_id))
+                    conn.commit()
+                    st.success("Nombre actualizado.")
+                    st.rerun()
+
+        st.markdown("---")
+
+        # ───────────────────────────────────────────────
+        # Cambio de contraseña (si existe columna)
+        # ───────────────────────────────────────────────
+        st.markdown("#### Cambiar contraseña")
+
+        # Detectar qué columna de contraseña tiene la tabla usuarios
+        cur.execute("PRAGMA table_info(usuarios)")
+        pragma_rows = cur.fetchall()
+        colnames = []
+        for r in pragma_rows:
+            try:
+                colnames.append(r["name"])
+            except Exception:
+                # PRAGMA table_info devuelve: (cid, name, type, notnull, dflt_value, pk)
+                colnames.append(r[1])
+
+        target_col = None
+        hash_mode = False
+        if "password_hash" in colnames:
+            target_col = "password_hash"
+            hash_mode = True
+        elif "password" in colnames:
+            target_col = "password"
+        elif "pwd" in colnames:
+            target_col = "pwd"
+
+        if not target_col:
+            st.caption("La tabla de usuarios no tiene columna de contraseña. El admin puede habilitarla desde el panel de usuarios.")
+        else:
+            pwd1 = st.text_input("Nueva contraseña", type="password", key="perfil_pwd1")
+            pwd2 = st.text_input("Repetir contraseña", type="password", key="perfil_pwd2")
+            if st.button("Guardar contraseña", key="perfil_btn_guardar_pwd"):
+                if not pwd1:
+                    st.warning("Ingresá una contraseña.")
+                elif pwd1 != pwd2:
+                    st.error("Las contraseñas no coinciden.")
+                elif len(pwd1) < 4:
+                    st.warning("Usá al menos 4 caracteres.")
+                else:
+                    value = pwd1
+                    if hash_mode:
+                        # Si tenés hash en usuarios.py, usalo; sino, SHA-256 como fallback.
+                        try:
+                            from usuarios import hash_password
+                            value = hash_password(pwd1)
+                        except Exception:
+                            value = hashlib.sha256(pwd1.encode("utf-8")).hexdigest()
+
+                    cur.execute(f"UPDATE usuarios SET {target_col} = ? WHERE id = ?", (value, uid))
+                    conn.commit()
+                    st.success("Contraseña actualizada.")
+                    st.rerun()
+
     if st.button("⬅️ Volver", key="back_perfil"):
         st.session_state["jugador_page"] = "menu"; st.rerun()
