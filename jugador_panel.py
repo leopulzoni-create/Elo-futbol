@@ -160,7 +160,13 @@ def _jugadores_en_partido(partido_id):
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT pj.jugador_id, pj.confirmado_por_jugador, pj.equipo, pj.ingreso_desde_espera, pj.camiseta, j.nombre
+            SELECT
+                pj.jugador_id,
+                pj.confirmado_por_jugador,
+                pj.equipo,
+                pj.ingreso_desde_espera,
+                pj.camiseta,
+                j.nombre
             FROM partido_jugadores pj
             JOIN jugadores j ON j.id = pj.jugador_id
             WHERE pj.partido_id = ?
@@ -198,6 +204,64 @@ def _reset_equipos(partido_id):
         cur = conn.cursor()
         cur.execute("UPDATE partido_jugadores SET equipo = NULL WHERE partido_id = ?", (partido_id,))
         conn.commit()
+
+
+# ---------- Renderer de equipos con camisetas ----------
+def _render_equipos(partido_id, inscritos):
+    """
+    Muestra Equipo 1 y Equipo 2 con encabezado que indica la camiseta del equipo,
+    y cada jugador precedido por el mismo ícono de color (⬛ / ⬜).
+    - 'oscura' -> ⬛
+    - 'clara'  -> ⬜
+    """
+
+    def _eq_num(x):
+        try:
+            return int(x) if x is not None else None
+        except Exception:
+            return None
+
+    def _team_color_info(jug_list):
+        """
+        Devuelve (emoji, etiqueta) según la mayoría de 'camiseta' en jug_list.
+        Si hay empate o no hay datos, cae en 'clara' (⬜).
+        """
+        if not jug_list:
+            return "⬜", "clara"
+        osc = sum(1 for j in jug_list if (j.get("camiseta") or "").lower() == "oscura")
+        cla = sum(1 for j in jug_list if (j.get("camiseta") or "").lower() == "clara")
+        if osc > cla:
+            return "⬛", "oscura"
+        if cla > osc:
+            return "⬜", "clara"
+        # Empate: tomar la primera camiseta válida si existe; si no, 'clara'
+        for j in jug_list:
+            c = (j.get("camiseta") or "").lower()
+            if c == "oscura":
+                return "⬛", "oscura"
+            if c == "clara":
+                return "⬜", "clara"
+        return "⬜", "clara"
+
+    eq1 = [j for j in inscritos if _eq_num(j.get("equipo")) == 1]
+    eq2 = [j for j in inscritos if _eq_num(j.get("equipo")) == 2]
+
+    icon1, lab1 = _team_color_info(eq1)
+    icon2, lab2 = _team_color_info(eq2)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**{icon1} Equipo 1  (Camiseta {lab1})**")
+        for j in eq1:
+            extra = " (WL)" if j.get("ingreso_desde_espera") else ""
+            st.write(f"{icon1}  {j.get('nombre','?')}{extra}")
+    with c2:
+        st.markdown(f"**{icon2} Equipo 2  (Camiseta {lab2})**")
+        for j in eq2:
+            extra = " (WL)" if j.get("ingreso_desde_espera") else ""
+            st.write(f"{icon2}  {j.get('nombre','?')}{extra}")
+
+    st.caption("⚠️ Si alguien se baja, los equipos se desarman automáticamente y el admin deberá regenerarlos.")
 
 
 def _promote_from_waitlist_if_possible(partido_id):
@@ -430,20 +494,7 @@ def panel_partidos_disponibles(user):
         with st.expander(titulo, expanded=False):
             # Equipos generados => mostrar equipos; si no, lista simple
             if _equipos_estan_generados(partido_id):
-                # listado simple por equipo sin ELO (ya lo tenías así)
-                eq1 = [j for j in inscritos if str(j.get("equipo")) == "1"]
-                eq2 = [j for j in inscritos if str(j.get("equipo")) == "2"]
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**Equipo 1**")
-                    for j in eq1:
-                        extra = " (WL)" if j.get("ingreso_desde_espera") else ""
-                        st.write(f"- {j['nombre']}{extra}")
-                with c2:
-                    st.markdown("**Equipo 2**")
-                    for j in eq2:
-                        extra = " (WL)" if j.get("ingreso_desde_espera") else ""
-                        st.write(f"- {j['nombre']}{extra}")
+                _render_equipos(partido_id, inscritos)
             else:
                 st.write("### Inscripciones")
                 if inscritos:
