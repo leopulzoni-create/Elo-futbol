@@ -57,32 +57,32 @@ def _row_to_dict(row):
 def _sync_view_from_query() -> bool:
     """
     Sincroniza query param 'view' <-> st.session_state['jugador_page'].
-    - Prioriza el valor del query param si es válido.
-    - Si no hay query param, refleja el session_state en la URL.
-    Devuelve True si cambió algo (útil para decidir rerun).
+    Reglas:
+      - Si YA hay una vista válida en session_state, ESA manda y se refleja en la URL.
+      - Si NO hay vista en session_state, se toma el query param si es válido; si no, 'menu'.
+    Devuelve True si ajustó algo (para decidir st.rerun()).
     """
     valid = {"menu", "partidos", "stats", "perfil"}
 
     qp = st.query_params.get("view", None)
     ss = st.session_state.get("jugador_page", None)
 
-    # Caso 1: el query param es válido y diferente del session_state => adopto qp
-    if qp in valid and qp != ss:
+    # Si ya hay vista válida en session_state, session_state manda.
+    if ss in valid:
+        if qp != ss:
+            st.query_params["view"] = ss
+            return True
+        return False
+
+    # Si no hay vista en session_state, miramos el query param
+    if qp in valid:
         st.session_state["jugador_page"] = qp
-        return True
+        return False  # ya coincide URL -> no hace falta rerun
 
-    # Caso 2: no hay qp válido, pero sí hay session_state => reflejo en URL
-    if (qp not in valid) and ss in valid:
-        st.query_params["view"] = ss
-        return True
-
-    # Caso 3: no hay nada definido aún => seteo 'menu' en ambos
-    if (qp not in valid) and (ss not in valid):
-        st.session_state["jugador_page"] = "menu"
-        st.query_params["view"] = "menu"
-        return True
-
-    return False
+    # No hay nada: setear 'menu' en ambos
+    st.session_state["jugador_page"] = "menu"
+    st.query_params["view"] = "menu"
+    return True
 
 
 def _goto(view: str):
