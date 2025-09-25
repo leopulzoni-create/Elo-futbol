@@ -54,16 +54,36 @@ def _row_to_dict(row):
     except Exception:
         return row
 
-def _sync_view_from_query():
+def _sync_view_from_query() -> bool:
     """
-    Si viene ?view=partidos|stats|perfil|menu en la URL,
-    sincroniza st.session_state['jugador_page'].
+    Sincroniza query param 'view' <-> st.session_state['jugador_page'].
+    - Prioriza el valor del query param si es válido.
+    - Si no hay query param, refleja el session_state en la URL.
+    Devuelve True si cambió algo (útil para decidir rerun).
     """
-    v = st.query_params.get("view", None)
-    if not v:
-        return
-    mapping = {"menu": "menu", "partidos": "partidos", "stats": "stats", "perfil": "perfil"}
-    st.session_state["jugador_page"] = mapping.get(v, "menu")
+    valid = {"menu", "partidos", "stats", "perfil"}
+
+    qp = st.query_params.get("view", None)
+    ss = st.session_state.get("jugador_page", None)
+
+    # Caso 1: el query param es válido y diferente del session_state => adopto qp
+    if qp in valid and qp != ss:
+        st.session_state["jugador_page"] = qp
+        return True
+
+    # Caso 2: no hay qp válido, pero sí hay session_state => reflejo en URL
+    if (qp not in valid) and ss in valid:
+        st.query_params["view"] = ss
+        return True
+
+    # Caso 3: no hay nada definido aún => seteo 'menu' en ambos
+    if (qp not in valid) and (ss not in valid):
+        st.session_state["jugador_page"] = "menu"
+        st.query_params["view"] = "menu"
+        return True
+
+    return False
+
 
 def _goto(view: str):
     """Navega dentro de la misma pestaña sin recargar toda la app."""
@@ -432,7 +452,9 @@ def panel_menu_jugador(user):
 
     if "jugador_page" not in st.session_state:
         st.session_state["jugador_page"] = "menu"
-    _sync_view_from_query()
+    if _sync_view_from_query():
+        st.rerun()
+
     _render_flash()
 
     username = user.get("username") or "jugador"
@@ -461,6 +483,8 @@ def panel_menu_jugador(user):
             _goto("perfil")
 
 def panel_partidos_disponibles(user):
+    if _sync_view_from_query():
+        st.rerun()
     _render_flash()
 
     jugador_id = user.get("jugador_id")
@@ -590,6 +614,8 @@ def panel_partidos_disponibles(user):
 
 
 def panel_mis_estadisticas(user):
+    if _sync_view_from_query():
+        st.rerun()
     try:
         import jugador_stats
         return jugador_stats.panel_mis_estadisticas(user)
@@ -608,6 +634,9 @@ def panel_mis_estadisticas(user):
 
 
 def panel_mi_perfil(user):
+    if _sync_view_from_query():
+        st.rerun()
+
     import streamlit as st
     from db import get_connection
     import hashlib
