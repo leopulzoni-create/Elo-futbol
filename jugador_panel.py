@@ -56,40 +56,48 @@ def _row_to_dict(row):
 
 def _sync_view_from_query() -> bool:
     """
-    Sincroniza query param 'view' <-> st.session_state['jugador_page'].
+    Sincroniza query param 'view' <-> st.session_state['jugador_page'] y soporta:
+      - Deep-links (pegar URL con ?view=... entra directo).
+      - Navegación del navegador (Atrás / Adelante).
     Reglas:
-      - Si YA hay una vista válida en session_state, ESA manda y se refleja en la URL.
-      - Si NO hay vista en session_state, se toma el query param si es válido; si no, 'menu'.
-    Devuelve True si ajustó algo (para decidir st.rerun()).
+      A) Si el query param cambió respecto del último visto, ADOPTA el query param.
+      B) Si no cambió, la fuente de verdad es session_state (y se refleja en la URL).
+    Devuelve True si modificó la URL o el estado (sugerencia para st.rerun()).
     """
     valid = {"menu", "partidos", "stats", "perfil"}
 
     qp = st.query_params.get("view", None)
     ss = st.session_state.get("jugador_page", None)
+    prev_qp = st.session_state.get("_last_qp_view", None)
 
-    # Si ya hay vista válida en session_state, session_state manda.
+    # A) Cambio real en el query param (p.ej., Atrás/Adelante o pegaste un link)
+    if qp in valid and qp != prev_qp:
+        st.session_state["jugador_page"] = qp
+        st.session_state["_last_qp_view"] = qp
+        return False  # ya estamos alineados; no forzamos rerun
+
+    # B) No hay query válido o no cambió: reflejar session_state en la URL
     if ss in valid:
         if qp != ss:
             st.query_params["view"] = ss
+            st.session_state["_last_qp_view"] = ss
             return True
+        # todo alineado
         return False
 
-    # Si no hay vista en session_state, miramos el query param
-    if qp in valid:
-        st.session_state["jugador_page"] = qp
-        return False  # ya coincide URL -> no hace falta rerun
-
-    # No hay nada: setear 'menu' en ambos
+    # Inicialización: no hay nada todavía → ir a menú
     st.session_state["jugador_page"] = "menu"
     st.query_params["view"] = "menu"
+    st.session_state["_last_qp_view"] = "menu"
     return True
 
-
 def _goto(view: str):
-    """Navega dentro de la misma pestaña sin recargar toda la app."""
+    """Navega dentro de la misma pestaña y mantiene URL y estado sincronizados."""
     st.query_params["view"] = view
     st.session_state["jugador_page"] = view
+    st.session_state["_last_qp_view"] = view
     st.rerun()
+
 
 def _rows_to_dicts(rows):
     return [_row_to_dict(r) for r in rows] if rows else []
