@@ -54,6 +54,17 @@ def _row_to_dict(row):
     except Exception:
         return row
 
+def _sync_view_from_query():
+    """
+    Si viene ?view=partidos|stats|perfil|menu en la URL,
+    sincroniza st.session_state['jugador_page'].
+    """
+    v = st.query_params.get("view", None)
+    if not v:
+        return
+    mapping = {"menu": "menu", "partidos": "partidos", "stats": "stats", "perfil": "perfil"}
+    st.session_state["jugador_page"] = mapping.get(v, "menu")
+
 
 def _rows_to_dicts(rows):
     return [_row_to_dict(r) for r in rows] if rows else []
@@ -416,7 +427,7 @@ def panel_menu_jugador(user):
 
     if "jugador_page" not in st.session_state:
         st.session_state["jugador_page"] = "menu"
-
+    _sync_view_from_query()
     _render_flash()
 
     username = user.get("username") or "jugador"
@@ -435,14 +446,12 @@ def panel_menu_jugador(user):
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles"):
-            st.session_state["jugador_page"] = "partidos"; st.rerun()
+        st.link_button("Ver partidos disponibles ⚽", "?view=partidos", use_container_width=True)
     with c2:
-        if st.button("Ver mis estadísticas 📊", key="btn_mis_stats"):
-            st.session_state["jugador_page"] = "stats"; st.rerun()
+        st.link_button("Ver mis estadísticas 📊", "?view=stats", use_container_width=True)
     with c3:
-        if st.button("Ver mi perfil 👤", key="btn_mi_perfil"):
-            st.session_state["jugador_page"] = "perfil"; st.rerun()
+        st.link_button("Ver mi perfil 👤", "?view=perfil", use_container_width=True)
+
 
 
 def panel_partidos_disponibles(user):
@@ -452,7 +461,9 @@ def panel_partidos_disponibles(user):
     if not jugador_id:
         st.warning("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule.")
         if st.button("⬅️ Volver", key="back_sin_vinculo"):
-            st.session_state["jugador_page"] = "menu"; st.rerun()
+            st.query_params["view"] = "menu"
+            st.session_state["jugador_page"] = "menu"
+            st.rerun()
         return
 
     st.subheader("Partidos disponibles")
@@ -461,7 +472,10 @@ def panel_partidos_disponibles(user):
     if not partidos:
         st.info("No hay partidos disponibles para tu grupo por el momento.")
         if st.button("⬅️ Volver", key="back_sin_partidos"):
-            st.session_state["jugador_page"] = "menu"; st.rerun()
+            st.query_params["view"] = "menu"
+            st.session_state["jugador_page"] = "menu"
+            st.rerun()
+
         return
 
     for p in partidos:
@@ -563,7 +577,10 @@ def panel_partidos_disponibles(user):
 
     st.divider()
     if st.button("⬅️ Volver", key="back_partidos"):
-        st.session_state["jugador_page"] = "menu"; st.rerun()
+        st.query_params["view"] = "menu"
+        st.session_state["jugador_page"] = "menu"
+        st.rerun()
+
 
 
 def panel_mis_estadisticas(user):
@@ -577,7 +594,10 @@ def panel_mis_estadisticas(user):
         st.exception(e)
         st.divider()
         if st.button("⬅️ Volver", key="back_stats_missing_mod"):
-            st.session_state["jugador_page"] = "menu"; st.rerun()
+            st.query_params["view"] = "menu"
+            st.session_state["jugador_page"] = "menu"
+            st.rerun()
+
         return
 
 
@@ -702,4 +722,7 @@ def panel_mi_perfil(user):
                     st.rerun()
 
     if st.button("⬅️ Volver", key="back_perfil"):
-        st.session_state["jugador_page"] = "menu"; st.rerun()
+        st.query_params["view"] = "menu"
+        st.session_state["jugador_page"] = "menu"
+        st.rerun()
+
