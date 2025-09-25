@@ -65,6 +65,12 @@ def _sync_view_from_query():
     mapping = {"menu": "menu", "partidos": "partidos", "stats": "stats", "perfil": "perfil"}
     st.session_state["jugador_page"] = mapping.get(v, "menu")
 
+def _goto(view: str):
+    """Navega dentro de la misma pestaña sin recargar toda la app."""
+    st.query_params["view"] = view
+    st.session_state["jugador_page"] = view
+    st.rerun()
+
 
 def _rows_to_dicts(rows):
     return [_row_to_dict(r) for r in rows] if rows else []
@@ -446,12 +452,14 @@ def panel_menu_jugador(user):
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.link_button("Ver partidos disponibles ⚽", "?view=partidos", use_container_width=True)
+        if st.button("Ver partidos disponibles ⚽", use_container_width=True, key="nav_partidos_btn"):
+            _goto("partidos")
     with c2:
-        st.link_button("Ver mis estadísticas 📊", "?view=stats", use_container_width=True)
+        if st.button("Ver mis estadísticas 📊", use_container_width=True, key="nav_stats_btn"):
+            _goto("stats")
     with c3:
-        st.link_button("Ver mi perfil 👤", "?view=perfil", use_container_width=True)
-
+        if st.button("Ver mi perfil 👤", use_container_width=True, key="nav_perfil_btn"):
+            _goto("perfil")
 
 
 def panel_partidos_disponibles(user):
