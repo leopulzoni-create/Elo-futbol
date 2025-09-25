@@ -9,30 +9,36 @@ from passlib.hash import pbkdf2_sha256  # <- sin bcrypt
 DB_NAME = "elo_futbol.db"
 
 def _rotate_admin_ui():
-    st.header("Rotar password de admin (temporal)")
-    maint = st.text_input("Maintenance token", type="password")
-    if not maint:
-        return
-    if maint != st.secrets.get("ROOT_MAINT_TOKEN", ""):
-        st.error("Token inválido.")
-        return
+    import streamlit as st
+    import bcrypt
+
+    st.subheader("Rotar contraseña de admin")
+
     new_pwd = st.text_input("Nueva contraseña para 'admin'", type="password")
-    if st.button("Rotar contraseña"):
-        if not new_pwd or len(new_pwd) < 10:
-            st.error("Usá una contraseña larga (10+ caracteres).")
+    if st.button("Actualizar contraseña"):
+        if not new_pwd.strip():
+            st.warning("Ingresá una contraseña válida.")
             return
-        new_hash = pbkdf2_sha256.hash(new_pwd)  # <- ahora PBKDF2-SHA256
-        with sqlite3.connect(DB_NAME) as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT id FROM usuarios WHERE username='admin'")
-            row = cur.fetchone()
-            if not row:
-                st.error("No existe 'admin'.")
-            else:
-                cur.execute("UPDATE usuarios SET password_hash=? WHERE username='admin'", (new_hash,))
+
+        try:
+            with sqlite3.connect(DB_NAME) as conn:
+                if not _table_exists(conn, "usuarios"):
+                    st.error("La tabla 'usuarios' no existe todavía. Creá la base o corré las migraciones antes de rotar la contraseña.")
+                    return
+
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM usuarios WHERE username = 'admin' LIMIT 1")
+                row = cur.fetchone()
+                if not row:
+                    st.error("No existe el usuario 'admin'. Crealo primero desde el panel de usuarios.")
+                    return
+
+                new_hash = bcrypt.hashpw(new_pwd.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+                cur.execute("UPDATE usuarios SET password_hash = ? WHERE id = ?", (new_hash, row[0]))
                 conn.commit()
-                st.success("Password rotado correctamente. ¡Quitá este bloque del código!")
-    st.caption("Recordá borrar este bloque y hacer push cuando termines.")
+                st.success("Contraseña de 'admin' actualizada.")
+        except sqlite3.OperationalError as e:
+            st.error(f"Error de base de datos: {e}")
 
 # Mostrar SOLO si la URL trae ?rotate=1
 if st.query_params.get("rotate", "") == "1":
