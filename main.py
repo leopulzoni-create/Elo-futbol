@@ -2,6 +2,44 @@ import streamlit as st
 from auth import verify_user
 import scheduler  # ⬅️ NUEVO: dispara materializaciones "lazy"
 
+# --- BLOQUE TEMPORAL PARA ROTAR PASSWORD ADMIN ---
+import streamlit as st, sqlite3
+from passlib.hash import bcrypt
+
+DB_NAME = "elo_futbol.db"
+
+def _rotate_admin_ui():
+    st.header("Rotar password de admin (temporal)")
+    maint = st.text_input("Maintenance token", type="password")
+    if not maint:
+        return
+    if maint != st.secrets.get("ROOT_MAINT_TOKEN",""):
+        st.error("Token inválido.")
+        return
+    new_pwd = st.text_input("Nueva contraseña para 'admin'", type="password")
+    if st.button("Rotar contraseña"):
+        if not new_pwd or len(new_pwd) < 10:
+            st.error("Usá una contraseña larga (10+ caracteres).")
+            return
+        new_hash = bcrypt.hash(new_pwd)
+        with sqlite3.connect(DB_NAME) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM usuarios WHERE username='admin'")
+            row = cur.fetchone()
+            if not row:
+                st.error("No existe 'admin'.")
+            else:
+                cur.execute("UPDATE usuarios SET password_hash=? WHERE username='admin'", (new_hash,))
+                conn.commit()
+                st.success("Password rotado correctamente. ¡Quitá este bloque del código!")
+
+# Mostrar sólo si ?rotate=1 en la URL
+if st.query_params.get("rotate", "") == "1":
+    _rotate_admin_ui()
+    st.stop()
+# --- FIN BLOQUE TEMPORAL ---
+
+
 
 # Persistencia de sesión vía token en URL (usa remember.py actualizado con st.query_params)
 from remember import (
