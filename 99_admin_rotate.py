@@ -17,7 +17,6 @@ def _get_admin_id(conn):
     return row[0] if row else None
 
 def _set_admin_password_sha256(conn, user_id: int, plain_pwd: str):
-    # mismo esquema de fallback que ya usás en el proyecto
     hash_hex = hashlib.sha256(plain_pwd.encode("utf-8")).hexdigest()
     cur = conn.cursor()
     cur.execute("UPDATE usuarios SET password_hash=? WHERE id=?", (hash_hex, user_id))
