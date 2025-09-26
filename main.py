@@ -10,7 +10,6 @@ DB_NAME = "elo_futbol.db"
 
 def _rotate_admin_ui():
     import streamlit as st
-    import bcrypt
 
     st.subheader("Rotar contraseña de admin")
 
@@ -33,7 +32,7 @@ def _rotate_admin_ui():
                     st.error("No existe el usuario 'admin'. Crealo primero desde el panel de usuarios.")
                     return
 
-                new_hash = bcrypt.hashpw(new_pwd.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+                new_hash = pbkdf2_sha256.hash(new_pwd)
                 cur.execute("UPDATE usuarios SET password_hash = ? WHERE id = ?", (new_hash, row[0]))
                 conn.commit()
                 st.success("Contraseña de 'admin' actualizada.")
