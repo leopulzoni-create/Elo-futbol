@@ -1,0 +1,3 @@
+[35mdb.py[m[36m:[m[32m92[m[36m:[m            conn = [1;31msqlite3.connect([mcandidate)
+[35mmain.py[m[36m:[m[32m23[m[36m:[m            with [1;31msqlite3.connect([mDB_NAME) as conn:
+[35mpages/99_admin_rotate.py[m[36m:[m[32m27[m[36m:[mwith [1;31msqlite3.connect([mDB_NAME) as conn:

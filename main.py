@@ -2,50 +2,86 @@ import streamlit as st
 from auth import verify_user
 import scheduler  # ⬅️ NUEVO: dispara materializaciones "lazy"
 
-# --- BLOQUE TEMPORAL PARA ROTAR PASSWORD ADMIN ---
-import streamlit as st, sqlite3, hashlib
-from passlib.hash import pbkdf2_sha256  # <- sin bcrypt
+# --- BLOQUE TEMPORAL PARA ROTAR PASSWORD ADMIN (pegá tal cual) ---
+import streamlit as st
+from passlib.hash import pbkdf2_sha256  # sin bcrypt
+from db import get_connection           # usa la conexión real (Turso)
 
-DB_NAME = "elo_futbol.db"
+def _table_exists(conn, table_name: str) -> bool:
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    return cur.fetchone() is not None
+
+def _detect_password_column(conn) -> str | None:
+    """
+    Devuelve el nombre de la columna de contraseña en 'usuarios'.
+    Prioridad: password_hash, password, pwd. None si no hay.
+    """
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(usuarios)")
+    cols = []
+    for r in cur.fetchall():
+        try:
+            cols.append(r["name"])
+        except Exception:
+            cols.append(r[1])  # (cid, name, type, notnull, dflt, pk)
+    for c in ("password_hash", "password", "pwd"):
+        if c in cols:
+            return c
+    return None
 
 def _rotate_admin_ui():
-    import streamlit as st
-
     st.subheader("Rotar contraseña de admin")
 
-    new_pwd = st.text_input("Nueva contraseña para 'admin'", type="password")
+    new_pwd  = st.text_input("Nueva contraseña para 'admin'", type="password")
+    new_pwd2 = st.text_input("Repetí la contraseña", type="password")
+
     if st.button("Actualizar contraseña"):
         if not new_pwd.strip():
             st.warning("Ingresá una contraseña válida.")
             return
+        if new_pwd != new_pwd2:
+            st.warning("Las contraseñas no coinciden.")
+            return
+        if len(new_pwd) < 4:
+            st.warning("Usá al menos 4 caracteres.")
+            return
 
-        try:
-            with sqlite3.connect(DB_NAME) as conn:
-                if not _table_exists(conn, "usuarios"):
-                    st.error("La tabla 'usuarios' no existe todavía. Creá la base o corré las migraciones antes de rotar la contraseña.")
-                    return
+        with get_connection() as conn:
+            if not _table_exists(conn, "usuarios"):
+                st.error("La tabla 'usuarios' no existe. Corré las migraciones o prepará la base antes de usar esta página.")
+                return
 
-                cur = conn.cursor()
-                cur.execute("SELECT id FROM usuarios WHERE username = 'admin' LIMIT 1")
-                row = cur.fetchone()
-                if not row:
-                    st.error("No existe el usuario 'admin'. Crealo primero desde el panel de usuarios.")
-                    return
+            cur = conn.cursor()
+            # buscar admin
+            cur.execute("SELECT id FROM usuarios WHERE username = 'admin' LIMIT 1")
+            row = cur.fetchone()
+            if not row:
+                st.error("No existe el usuario 'admin'. Crealo primero desde el panel de usuarios.")
+                return
 
-                new_hash = pbkdf2_sha256.hash(new_pwd)
-                cur.execute("UPDATE usuarios SET password_hash = ? WHERE id = ?", (new_hash, row[0]))
-                conn.commit()
-                st.success("Contraseña de 'admin' actualizada.")
-        except sqlite3.OperationalError as e:
-            st.error(f"Error de base de datos: {e}")
+            admin_id = row["id"] if isinstance(row, dict) else row[0]
 
-# Mostrar SOLO si la URL trae ?rotate=1
-if st.query_params.get("rotate", "") == "1":
+            # detectar columna de contraseña
+            pwd_col = _detect_password_column(conn)
+            if not pwd_col:
+                st.error("No encontré ninguna columna de contraseña en 'usuarios' (password_hash/password/pwd).")
+                return
+
+            # hashear con PBKDF2 (mismo esquema de la app)
+            new_hash = pbkdf2_sha256.hash(new_pwd)
+
+            # actualizar
+            cur.execute(f"UPDATE usuarios SET {pwd_col} = ? WHERE id = ?", (new_hash, admin_id))
+            conn.commit()
+
+        st.success("Contraseña de 'admin' actualizada correctamente ✅")
+
+# Mostrar SOLO si la URL trae ?rotate=1 (misma pestaña, sin abrir nuevas)
+if st.query_params.get("rotate") == "1":
     _rotate_admin_ui()
     st.stop()
 # --- FIN BLOQUE TEMPORAL ---
-
-
 
 
 # Persistencia de sesión vía token en URL (usa remember.py actualizado con st.query_params)
