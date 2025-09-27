@@ -1,8 +1,7 @@
-from db import get_connection
 # usuarios.py
+from auth import hash_password  # <-- usamos SIEMPRE el hash seguro (PBKDF2+pepper)
 import streamlit as st
 import sqlite3
-import hashlib
 
 DB_NAME = "elo_futbol.db"
 
@@ -12,22 +11,6 @@ DB_NAME = "elo_futbol.db"
 def get_connection():
     from db import get_connection as _gc
     return _gc()
-
-    return conn
-
-# Usa hash de auth si existe; si no, SHA-256 (MVP local)
-_HASH_VIA_AUTH = False
-try:
-    from auth import hash_password as _auth_hash_password
-    _HASH_VIA_AUTH = True
-except Exception:
-    pass
-
-def _sha256_hash(pwd: str) -> str:
-    return hashlib.sha256(pwd.encode("utf-8")).hexdigest()
-
-def hash_password(pwd: str) -> str:
-    return _auth_hash_password(pwd) if _HASH_VIA_AUTH else _sha256_hash(pwd)
 
 def _set_flash(msg: str, typ: str = "success"):
     st.session_state["_flash_msg"] = msg
@@ -55,7 +38,12 @@ def _render_and_clear_flash_at_bottom():
 def load_groups():
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS grupos (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL UNIQUE)")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS grupos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL UNIQUE
+        )
+    """)
     conn.commit()
     cur.execute("SELECT id, nombre FROM grupos ORDER BY nombre ASC")
     rows = cur.fetchall()
@@ -117,7 +105,12 @@ def panel_gestion():
     def cargar_usuarios():
         conn = get_connection()
         cur = conn.cursor()
-        cur.execute("CREATE TABLE IF NOT EXISTS grupos (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL UNIQUE)")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS grupos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL UNIQUE
+            )
+        """)
         conn.commit()
         cur.execute("""
             SELECT u.id, u.username, u.rol, u.jugador_id, u.grupos, j.nombre AS jugador_nombre
@@ -355,7 +348,12 @@ def panel_gestion():
         else:
             conn = get_connection()
             cur = conn.cursor()
-            cur.execute("CREATE TABLE IF NOT EXISTS grupos (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL UNIQUE)")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS grupos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre TEXT NOT NULL UNIQUE
+                )
+            """)
             conn.commit()
             try:
                 cur.execute("INSERT INTO grupos (nombre) VALUES (?)", (nombre,))
@@ -375,15 +373,15 @@ def panel_gestion():
             with st.container():
                 col1, col2, col3 = st.columns([4, 1.2, 1.2])
                 with col1:
-                    # Label obligatorio (usamos uno discreto) + ID como caption
+                    # Label mínimo para no ocupar altura; mostramos ID como caption
                     nuevo_nombre = st.text_input(
-                        " ",  # label mínimo para evitar el TypeError y no ocupar altura
+                        " ",
                         value=g["nombre"],
                         key=f"grp_name_{g['id']}",
                     )
                     st.caption(f"ID {g['id']}")
                 with col2:
-                    st.write("")  # espaciador para alinear verticalmente
+                    st.write("")
                     if st.button("Renombrar", key=f"grp_ren_{g['id']}", use_container_width=True):
                         name = (nuevo_nombre or "").strip()
                         if not name:
@@ -401,9 +399,8 @@ def panel_gestion():
                                 conn.close()
                             st.rerun()
                 with col3:
-                    st.write("")  # espaciador para alinear verticalmente
+                    st.write("")
                     if st.button("Eliminar", key=f"grp_del_{g['id']}", use_container_width=True):
-                        # Eliminar directo (sin checkbox)
                         conn = get_connection()
                         cur = conn.cursor()
                         try:
