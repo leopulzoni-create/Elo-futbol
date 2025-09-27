@@ -1,98 +1,76 @@
-# auth.py — verificación de usuario con contraseña (hash o texto plano)
-from __future__ import annotations
+# auth.py
+from typing import Optional, Dict, Any
+from passlib.hash import pbkdf2_sha256, bcrypt
+from db import get_connection
+import sqlite3
 
-import hashlib
-import hmac
-from typing import Any, Dict, Optional
-
-
-def _hash_password_fallback(pwd: str) -> str:
-    """
-    Fallback si no existe usuarios.hash_password: SHA-256 simple.
-    """
-    return hashlib.sha256(pwd.encode("utf-8")).hexdigest()
-
-
-def _row_to_dict(cur, row) -> Dict[str, Any]:
+# --- util ---
+def _row_to_dict(cur, row) -> Optional[Dict[str, Any]]:
     if row is None:
-        return {}
+        return None
     try:
         return dict(row)  # sqlite3.Row
     except Exception:
         cols = [d[0] for d in cur.description] if cur.description else []
         return {cols[i]: row[i] for i in range(len(cols))}
 
+# --- API pública que usa el resto de la app ---
 
-def verify_user(username: str, password: str) -> Optional[Dict[str, Any]]:
-    """
-    Devuelve un dict normalizado del usuario si (y sólo si) la contraseña es válida.
-    En caso contrario, devuelve None.
-    """
-    if not username or not password:
+def hash_password(plain: str) -> str:
+    """Genera hash pbkdf2_sha256 (estándar actual del proyecto)."""
+    return pbkdf2_sha256.hash((plain or "").strip())
+
+def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
+    if not username:
         return None
-
-    from db import get_connection
-
     with get_connection() as conn:
         cur = conn.cursor()
-
-        # Traigo TODO el registro para no depender de columnas fijas
         cur.execute("SELECT * FROM usuarios WHERE username = ? LIMIT 1", (username,))
-        row = _row_to_dict(cur, cur.fetchone())
-        if not row:
-            return None
+        return _row_to_dict(cur, cur.fetchone())
 
-        # ¿Qué campo de contraseña hay?
-        pwd_field = None
-        hash_mode = False
-        for f in ("password_hash", "password", "pwd"):
-            if f in row:
-                pwd_field = f
-                hash_mode = (f == "password_hash")
-                break
+def _extract_stored_password(u: Dict[str, Any]) -> Optional[str]:
+    """
+    Devuelve el valor de contraseña almacenada intentando en este orden:
+    password_hash, password, pwd. Si ninguna existe o está vacía -> None.
+    """
+    if not u:
+        return None
+    for k in ("password_hash", "password", "pwd"):
+        val = u.get(k)
+        if val is not None and str(val).strip() != "":
+            return str(val)
+    return None
 
-        # Si no hay columna de contraseña o está vacía -> NO autenticar
-        if not pwd_field:
-            return None
-        stored = row.get(pwd_field)
-        if stored is None or str(stored).strip() == "":
-            return None
+def verify_password(plain: str, stored: str) -> bool:
+    """
+    Verifica contra múltiples formatos:
+      - $pbkdf2-sha256$...  -> passlib.pbkdf2_sha256
+      - $2a$ / $2b$ / $2y$  -> passlib.bcrypt
+      - sin prefijo         -> comparación en claro (legacy)
+    """
+    if stored is None:
+        return False
+    s = str(stored)
+    p = (plain or "")
+    try:
+        if s.startswith("$pbkdf2-sha256$"):
+            return pbkdf2_sha256.verify(p, s)
+        if s.startswith("$2a$") or s.startswith("$2b$") or s.startswith("$2y$"):
+            return bcrypt.verify(p, s)
+        # Último recurso: texto plano legado
+        return p == s
+    except Exception:
+        # si algo falla al verificar el hash, tratamos como inválido
+        return False
 
-        # Comparación según modo
-        ok = False
-        try:
-            if hash_mode:
-                # Intentar usar el hash del proyecto si existe; si no, SHA-256
-                try:
-                    from usuarios import hash_password as project_hash
-                    candidate = project_hash(password)
-                except Exception:
-                    candidate = _hash_password_fallback(password)
-                ok = hmac.compare_digest(str(stored), str(candidate))
-            else:
-                # Texto plano (sólo por retro-compatibilidad)
-                ok = hmac.compare_digest(str(stored), str(password))
-        except Exception:
-            ok = False
-
-        if not ok:
-            return None
-
-        # Normalización de rol/is_admin
-        is_admin_raw = row.get("is_admin")
-        rol = (row.get("rol") or "").strip().lower()
-        if not rol:
-            # si no hay rol pero is_admin está seteado, lo derivamos
-            is_admin_bool = False
-            if is_admin_raw is not None:
-                is_admin_bool = str(is_admin_raw).strip().lower() in ("1", "true", "t", "yes")
-            rol = "admin" if is_admin_bool else "jugador"
-
-        # Devuelvo un dict minimal y consistente
-        return {
-            "id": row.get("id"),
-            "username": row.get("username"),
-            "rol": rol,
-            "is_admin": 1 if rol == "admin" else 0,
-            "jugador_id": row.get("jugador_id"),
-        }
+def authenticate(username: str, password: str) -> Optional[Dict[str, Any]]:
+    """
+    Devuelve el usuario (dict) si las credenciales son válidas; si no, None.
+    """
+    u = get_user_by_username(username)
+    if not u:
+        return None
+    stored = _extract_stored_password(u)
+    if not stored:
+        return None
+    return u if verify_password(password, stored) else None
