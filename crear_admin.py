@@ -1,29 +1,27 @@
-import sqlite3
-import hashlib
+import streamlit as st
 from db import get_connection
+from usuarios import hash_password
 
-DB_NAME = "elo_futbol.db"
+def ensure_admin_user():
+    admin_conf = st.secrets.get("admin", {})
+    username = admin_conf.get("username")
+    password = admin_conf.get("password")
+    if not username or not password:
+        return  # no está configurado en secrets
 
-# Datos del administrador
-username = "admin"
-password = "topo123"
-password_hash = hashlib.sha256(password.encode()).hexdigest()
-rol = "admin"
+    pwd_hash = hash_password(password)
 
-# Conexión a la base
-conn = get_connection()
-cur = conn.cursor()
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, rol TEXT, jugador_id INTEGER, grupos INTEGER)")
+        conn.commit()
 
-# Insertar un jugador para vincular al admin (opcional, si no hay jugador aún)
-cur.execute("INSERT INTO jugadores (nombre, elo_actual, estado) VALUES (?, ?, ?)",
-            ("Administrador", 1000, "activo"))
-jugador_id = cur.lastrowid
-
-# Insertar usuario admin
-cur.execute("INSERT INTO usuarios (jugador_id, username, password_hash, rol) VALUES (?, ?, ?, ?)",
-            (jugador_id, username, password_hash, rol))
-
-conn.commit()
-conn.close()
-
-print("Usuario administrador creado con éxito.")
+        cur.execute("SELECT id FROM usuarios WHERE username = ?", (username,))
+        row = cur.fetchone()
+        if not row:
+            cur.execute(
+                "INSERT INTO usuarios (username, password_hash, rol, grupos) VALUES (?, ?, 'admin', -1)",
+                (username, pwd_hash)
+            )
+            conn.commit()
+            print(f"Admin '{username}' creado desde secrets ✅")

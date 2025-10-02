@@ -1,6 +1,8 @@
 import streamlit as st
 from auth import verify_user
 import scheduler  # ⬅️ NUEVO: dispara materializaciones "lazy"
+from crear_admin import ensure_admin_user
+ensure_admin_user()
 
 
 # Persistencia de sesión vía token en URL (usa remember.py actualizado con st.query_params)
