@@ -3,9 +3,11 @@ from auth import verify_user
 import scheduler  # dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
 ensure_admin_user()
+import streamlit.components.v1 as components
 
 # Persistencia de sesión vía token en URL (usa remember.py con st.query_params)
 from remember import (
+    _install_popstate_reload()
     ensure_tables,
     validate_token,
     issue_token,
@@ -183,3 +185,17 @@ else:
             st.session_state.jugador_page = "menu"
             set_url_page("menu")  # ← NUEVO deep-link
             st.rerun()
+
+def _install_popstate_reload():
+    # JS mínimo: si el usuario toca Atrás/Adelante, recarga la app para que lea los nuevos query params
+    components.html("""
+    <script>
+    (function(){
+      if (window.__stPopstateInstalled) return;
+      window.__stPopstateInstalled = true;
+      window.addEventListener('popstate', function(){
+        try { window.parent.location.reload(); } catch(e) { location.reload(); }
+      });
+    })();
+    </script>
+    """, height=0)

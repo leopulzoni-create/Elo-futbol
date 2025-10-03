@@ -550,20 +550,22 @@ def panel_partidos_disponibles(user):
 
 
 def panel_mis_estadisticas(user):
+    _render_flash()
     try:
         import jugador_stats
-        return jugador_stats.panel_mis_estadisticas(user)
+        # Renderiza la vista del dashboard (no hacemos return para poder dibujar nuestro "Volver")
+        jugador_stats.panel_mis_estadisticas(user)
     except Exception as e:
-        _render_flash()
         st.subheader("Mis estadísticas")
         st.error("No se pudo cargar el módulo de estadísticas (jugador_stats.py).")
         st.exception(e)
-        st.divider()
-        if st.button("⬅️ Volver"):
-            set_url_page("menu")
-            st.session_state["jugador_page"] = "menu"
-            st.rerun()
-        return
+
+    # ---- Botón Volver propio (siempre presente, falle o no el import) ----
+    st.divider()
+    if st.button("⬅️ Volver", key="back_stats_global"):
+        set_url_page("menu")
+        st.session_state["jugador_page"] = "menu"
+        st.rerun()
 
 
 def panel_mi_perfil(user):
