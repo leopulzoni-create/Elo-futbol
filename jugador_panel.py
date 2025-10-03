@@ -422,6 +422,28 @@ def _page_url(page: str) -> str:
     return f"?{urlencode(params)}"
 
 
+def _link_button(label: str, page: str):
+    """Botón compatible: usa <a> para navegar conservando ?auth y escribiendo ?page."""
+    url = _page_url(page)
+    # Estilo simple que funciona en claro/oscuro
+    st.markdown(
+        f"""
+        <a href="{url}" target="_self" style="
+            text-decoration:none;
+        ">
+          <div style="
+            display:inline-block;
+            padding:0.6rem 1rem;
+            border:1px solid rgba(49,51,63,.2);
+            border-radius:.5rem;
+            font-weight:600;
+          ">{label}</div>
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
 def panel_menu_jugador(user):
     # Disparo LAZY: materializar programaciones vencidas al entrar
@@ -453,11 +475,11 @@ def panel_menu_jugador(user):
     c1, c2, c3 = st.columns(3)
     with c1:
         # ← NUEVO: link con URL (?auth&?page) — se puede copiar/abrir en pestaña nueva
-        st.link_button("Ver partidos disponibles ⚽", _page_url("partidos"))
+        _link_button("Ver partidos disponibles ⚽", "partidos")
     with c2:
-        st.link_button("Ver mis estadísticas 📊", _page_url("stats"))
+        _link_button("Ver mis estadísticas 📊", "stats")
     with c3:
-        st.link_button("Ver mi perfil 👤", _page_url("perfil"))
+        _link_button("Ver mi perfil 👤", "perfil")
 
 
 def panel_partidos_disponibles(user):
