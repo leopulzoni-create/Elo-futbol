@@ -453,11 +453,11 @@ def panel_menu_jugador(user):
     c1, c2, c3 = st.columns(3)
     with c1:
         # ← NUEVO: link con URL (?auth&?page) — se puede copiar/abrir en pestaña nueva
-        st.link_button("Ver partidos disponibles ⚽", _page_url("partidos"), key="lnk_partidos")
+        st.link_button("Ver partidos disponibles ⚽", _page_url("partidos"))
     with c2:
-        st.link_button("Ver mis estadísticas 📊", _page_url("stats"), key="lnk_stats")
+        st.link_button("Ver mis estadísticas 📊", _page_url("stats"))
     with c3:
-        st.link_button("Ver mi perfil 👤", _page_url("perfil"), key="lnk_perfil")
+        st.link_button("Ver mi perfil 👤", _page_url("perfil"))
 
 
 def panel_partidos_disponibles(user):
