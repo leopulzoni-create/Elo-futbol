@@ -5,70 +5,77 @@ import sqlite3
 import scheduler
 from datetime import date, datetime
 import pytz
+from urllib.parse import urlencode
+from remember import current_token_in_url, set_url_page
 
 DB_NAME = "elo_futbol.db"
 CUPO_PARTIDO = 10
 CUPO_ESPERA = 4
 TZ_AR = pytz.timezone("America/Argentina/Buenos_Aires")
 
+# ------------------------
+# Helper para construir URLs con ?auth=...&page=...
+# ------------------------
+def _page_url(page: str) -> str:
+    params = {}
+    tok = current_token_in_url()
+    if tok:
+        params["auth"] = tok
+    params["page"] = page
+    return f"?{urlencode(params)}"
+
 
 def get_connection():
     from db import get_connection as _gc
     return _gc()
 
+def _now_ar_str() -> str:
+    return datetime.now(TZ_AR).strftime("%d/%m/%Y %H:%M")
 
-def _now_ar_str():
-    return datetime.now(TZ_AR).strftime("%Y-%m-%d %H:%M:%S")
-
-
-# ---------- Flash ----------
 def _ensure_flash_store():
     if "flash" not in st.session_state:
         st.session_state["flash"] = []
 
-
-def _push_flash(msg, level="info"):
+def _push_flash(txt: str, level: str = "info"):
     _ensure_flash_store()
-    st.session_state["flash"].append((level, msg))
-
+    st.session_state["flash"].append((level, txt))
 
 def _render_flash():
     _ensure_flash_store()
-    if st.session_state["flash"]:
-        for level, msg in st.session_state["flash"]:
-            {"success": st.success, "warning": st.warning,
-             "error": st.error}.get(level, st.info)(msg)
-        st.session_state["flash"].clear()
+    if not st.session_state["flash"]:
+        return
+    for level, txt in st.session_state["flash"]:
+        if level == "success":
+            st.success(txt)
+        elif level == "warning":
+            st.warning(txt)
+        elif level == "error":
+            st.error(txt)
+        else:
+            st.info(txt)
+    st.session_state["flash"].clear()
 
-
-# ---------- Utils ----------
 def _row_to_dict(row):
     if row is None:
         return None
-    if isinstance(row, dict):
-        return row
+    if isinstance(row, sqlite3.Row):
+        return {k: row[k] for k in row.keys()}
+    # ya dict / tuple
     try:
-        if hasattr(row, "keys"):
-            return {k: row[k] for k in row.keys()}
         return dict(row)
     except Exception:
         return row
 
-
 def _rows_to_dicts(rows):
-    return [_row_to_dict(r) for r in rows] if rows else []
+    return [_row_to_dict(r) for r in rows or []]
 
-
-def time_label_from_int(hhmm_int):
-    if hhmm_int is None:
-        return "Sin hora"
-    hh = int(hhmm_int) // 100
-    mm = int(hhmm_int) % 100
+def time_label_from_int(hhmm: int) -> str:
+    # 2030 -> "20:30"
+    hh = hhmm // 100
+    mm = hhmm % 100
     return f"{hh:02d}:{mm:02d}"
 
-
-_DIAS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-
+_DIAS_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
 def _weekday_es(yyyy_mm_dd: str) -> str:
     try:
@@ -77,7 +84,6 @@ def _weekday_es(yyyy_mm_dd: str) -> str:
     except Exception:
         return ""
 
-
 def _format_fecha_ddmmyyyy(yyyy_mm_dd: str) -> str:
     try:
         dt = datetime.strptime(yyyy_mm_dd, "%Y-%m-%d").date()
@@ -85,162 +91,104 @@ def _format_fecha_ddmmyyyy(yyyy_mm_dd: str) -> str:
     except Exception:
         return yyyy_mm_dd
 
+def _cancha_label(cancha_row):
+    if not cancha_row:
+        return "Cancha"
+    return f"{cancha_row['nombre']} — {cancha_row['direccion'] or ''}".strip(" —")
 
-def _cancha_label(cancha_id):
-    if cancha_id is None:
-        return "Sin asignar"
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT nombre, direccion FROM canchas WHERE id = ?", (cancha_id,))
-        row = cur.fetchone()
-        if not row:
-            return "Sin asignar"
-        nombre = row["nombre"] or "Sin asignar"
-        direccion = (row["direccion"] or "").strip()
-        return f"{nombre} ({direccion})" if direccion else nombre
+# ---------- WAITLIST helpers ----------
+def _waitlist_get(conn, partido_id: int):
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT w.partido_id, w.jugador_id, j.nombre
+        FROM waitlist w
+        JOIN jugadores j ON j.id = w.jugador_id
+        WHERE w.partido_id = ?
+        ORDER BY w.created_at
+    """, (partido_id,))
+    return _rows_to_dicts(cur.fetchall())
 
+def _waitlist_count(conn, partido_id: int) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS c FROM waitlist WHERE partido_id = ?", (partido_id,))
+    r = _row_to_dict(cur.fetchone())
+    return int(r["c"] or 0)
 
-# ---------- Lista de espera ----------
-def _waitlist_get(partido_id):
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT le.partido_id, le.jugador_id, le.created_at, j.nombre
-            FROM lista_espera le
-            JOIN jugadores j ON j.id = le.jugador_id
-            WHERE le.partido_id = ?
-            ORDER BY le.created_at ASC
-        """, (partido_id,))
-        return _rows_to_dicts(cur.fetchall())
+def _waitlist_is_in(conn, partido_id: int, jugador_id: int) -> bool:
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM waitlist WHERE partido_id=? AND jugador_id=? LIMIT 1", (partido_id, jugador_id))
+    return cur.fetchone() is not None
 
+def _waitlist_join(conn, partido_id: int, jugador_id: int):
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO waitlist (partido_id, jugador_id, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (partido_id, jugador_id))
+    conn.commit()
 
-def _waitlist_count(partido_id):
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) AS c FROM lista_espera WHERE partido_id=?", (partido_id,))
-        r = _row_to_dict(cur.fetchone())
-        return r["c"] if r else 0
+def _waitlist_leave(conn, partido_id: int, jugador_id: int):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM waitlist WHERE partido_id=? AND jugador_id=?", (partido_id, jugador_id))
+    conn.commit()
 
+# ---------- Roster & equipos ----------
+def _jugadores_en_partido(conn, partido_id: int):
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT ip.partido_id, ip.jugador_id, j.nombre, ip.equipo, ip.ingreso_desde_waitlist AS ingreso_desde_waitlist
+        FROM inscritos_partido ip
+        JOIN jugadores j ON j.id = ip.jugador_id
+        WHERE ip.partido_id = ?
+        ORDER BY ip.equipo, j.nombre
+    """, (partido_id,))
+    return _rows_to_dicts(cur.fetchall())
 
-def _waitlist_is_in(partido_id, jugador_id):
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT 1 FROM lista_espera WHERE partido_id=? AND jugador_id=? LIMIT 1",
-                    (partido_id, jugador_id))
-        return cur.fetchone() is not None
+def _roster_count(conn, partido_id: int) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS c FROM inscritos_partido WHERE partido_id = ?", (partido_id,))
+    r = _row_to_dict(cur.fetchone())
+    return int(r["c"] or 0)
 
+def _equipos_estan_generados(conn, partido_id: int) -> bool:
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS c FROM equipos WHERE partido_id = ?", (partido_id,))
+    r = _row_to_dict(cur.fetchone())
+    return int(r["c"] or 0) > 0
 
-def _waitlist_join(partido_id, jugador_id):
-    if _waitlist_is_in(partido_id, jugador_id):
-        return False, "Ya estabas en la lista de espera."
-    if _waitlist_count(partido_id) >= CUPO_ESPERA:
-        return False, "La lista de espera está completa."
-    ts = datetime.now(TZ_AR).strftime("%Y-%m-%d %H:%M:%S")
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("INSERT INTO lista_espera (partido_id, jugador_id, created_at) VALUES (?,?,?)",
-                    (partido_id, jugador_id, ts))
-        conn.commit()
-    return True, "Te anotaste en la lista de espera 🕒"
+def _reset_equipos(conn, partido_id: int):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM equipos WHERE partido_id=?", (partido_id,))
+    conn.commit()
 
+def _render_equipos(conn, partido_id: int):
+    inscritos = _jugadores_en_partido(conn, partido_id)
 
-def _waitlist_leave(partido_id, jugador_id):
-    if not _waitlist_is_in(partido_id, jugador_id):
-        return False, "No estabas en la lista de espera."
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("DELETE FROM lista_espera WHERE partido_id=? AND jugador_id=?",
-                    (partido_id, jugador_id))
-        conn.commit()
-    return True, "Saliste de la lista de espera."
-
-
-# ---------- Roster / equipos ----------
-def _jugadores_en_partido(partido_id):
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT
-                pj.jugador_id,
-                pj.confirmado_por_jugador,
-                pj.equipo,
-                pj.ingreso_desde_espera,
-                pj.camiseta,
-                j.nombre
-            FROM partido_jugadores pj
-            JOIN jugadores j ON j.id = pj.jugador_id
-            WHERE pj.partido_id = ?
-            ORDER BY j.nombre ASC
-        """, (partido_id,))
-        return _rows_to_dicts(cur.fetchall())
-
-
-def _roster_count(partido_id):
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) AS c FROM partido_jugadores WHERE partido_id=?", (partido_id,))
-        r = _row_to_dict(cur.fetchone())
-        return r["c"] if r else 0
-
-
-def _equipos_estan_generados(partido_id):
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT
-              SUM(CASE WHEN CAST(equipo AS INTEGER) IN (1,2) THEN 1 ELSE 0 END) AS con_eq,
-              COUNT(*) AS total
-            FROM partido_jugadores
-            WHERE partido_id = ?
-        """, (partido_id,))
-        r = cur.fetchone()
-        con_eq = int((r["con_eq"] if r and r["con_eq"] is not None else 0))
-        total = int((r["total"] if r and r["total"] is not None else 0))
-        return (total == CUPO_PARTIDO) and (con_eq == CUPO_PARTIDO)
-
-
-def _reset_equipos(partido_id):
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("UPDATE partido_jugadores SET equipo = NULL WHERE partido_id = ?", (partido_id,))
-        conn.commit()
-
-
-# ---------- Renderer de equipos con camisetas ----------
-def _render_equipos(partido_id, inscritos):
-    """
-    Muestra Equipo 1 y Equipo 2 con encabezado que indica la camiseta del equipo,
-    y cada jugador precedido por el mismo ícono de color (⬛ / ⬜).
-    - 'oscura' -> ⬛
-    - 'clara'  -> ⬜
-    """
-
-    def _eq_num(x):
+    def _eq_num(v):
         try:
-            return int(x) if x is not None else None
+            return int(v or 0)
         except Exception:
-            return None
+            return 0
 
-    def _team_color_info(jug_list):
-        """
-        Devuelve (emoji, etiqueta) según la mayoría de 'camiseta' en jug_list.
-        Si hay empate o no hay datos, cae en 'clara' (⬜).
-        """
-        if not jug_list:
-            return "⬜", "clara"
-        osc = sum(1 for j in jug_list if (j.get("camiseta") or "").lower() == "oscura")
-        cla = sum(1 for j in jug_list if (j.get("camiseta") or "").lower() == "clara")
-        if osc > cla:
+    def _team_color_info(lista):
+        # Retorna (emoji, etiqueta)
+        colores = [("oscura", "⬛"), ("clara", "⬜")]
+        # Buscamos si algún jugador cargó preferencia de color
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT color_camiseta AS c
+            FROM jugadores
+            WHERE id IN (SELECT jugador_id FROM inscritos_partido WHERE partido_id=?)
+        """, (partido_id,))
+        colprefs = [(_row_to_dict(r) or {}).get("c") for r in cur.fetchall()]
+        for c, icon in [("oscura", "⬛"), ("clara", "⬜")]:
+            if c in colprefs:
+                return icon, c
+        # fallback por contador
+        osc = sum(1 for j in lista if (j.get("equipo") == 1))
+        cla = sum(1 for j in lista if (j.get("equipo") == 2))
+        if osc >= cla:
             return "⬛", "oscura"
         if cla > osc:
             return "⬜", "clara"
-        # Empate: tomar la primera camiseta válida si existe; si no, 'clara'
-        for j in jug_list:
-            c = (j.get("camiseta") or "").lower()
-            if c == "oscura":
-                return "⬛", "oscura"
-            if c == "clara":
-                return "⬜", "clara"
+        # si empate, prioriza "clara" para visitante
         return "⬜", "clara"
 
     eq1 = [j for j in inscritos if _eq_num(j.get("equipo")) == 1]
@@ -253,159 +201,62 @@ def _render_equipos(partido_id, inscritos):
     with c1:
         st.markdown(f"**{icon1} Equipo 1  (Camiseta {lab1})**")
         for j in eq1:
-            extra = " (WL)" if j.get("ingreso_desde_espera") else ""
-            st.write(f"{icon1}  {j.get('nombre','?')}{extra}")
+            extra = " (WL)" if j.get("ingreso_desde_waitlist") else ""
+            st.write(f"- {j['nombre']}{extra}")
     with c2:
         st.markdown(f"**{icon2} Equipo 2  (Camiseta {lab2})**")
         for j in eq2:
-            extra = " (WL)" if j.get("ingreso_desde_espera") else ""
-            st.write(f"{icon2}  {j.get('nombre','?')}{extra}")
+            extra = " (WL)" if j.get("ingreso_desde_waitlist") else ""
+            st.write(f"- {j['nombre']}{extra}")
 
-    st.caption("⚠️ Si alguien se baja, los equipos se desarman automáticamente y el admin deberá regenerarlos.")
-
-
-def _promote_from_waitlist_if_possible(partido_id):
-    if _roster_count(partido_id) >= CUPO_PARTIDO:
-        return False
-    wl = _waitlist_get(partido_id)
+def _promote_from_waitlist_if_possible(conn, partido_id: int):
+    # Si hay cupo libre, sube al primero de la lista de espera
+    cupo = CUPO_PARTIDO
+    count = _roster_count(conn, partido_id)
+    if count >= cupo:
+        return
+    wl = _waitlist_get(conn, partido_id)
     if not wl:
-        return False
+        return
     first = wl[0]
-    with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT OR IGNORE INTO partido_jugadores (partido_id, jugador_id, confirmado_por_jugador, camiseta, ingreso_desde_espera)
-            VALUES (?, ?, 1, 'clara', 1)
-        """, (partido_id, first["jugador_id"]))
-        cur.execute("DELETE FROM lista_espera WHERE partido_id=? AND jugador_id=?",
-                    (partido_id, first["jugador_id"]))
-        conn.commit()
-    return True
+    cur = conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO inscritos_partido (partido_id, jugador_id, equipo, ingreso_desde_waitlist) VALUES (?, ?, 0, 1)", (partido_id, first["jugador_id"]))
+    cur.execute("DELETE FROM waitlist WHERE partido_id=? AND jugador_id=?", (partido_id, first["jugador_id"]))
+    conn.commit()
 
-
-# ---------- Helpers para detección de columnas y conversión segura ----------
-def _detect_col(conn, table: str, candidates: list[str]) -> str:
-    """
-    Devuelve el primer nombre de columna que exista en `table` entre `candidates`.
-    Si no puede detectar nada, devuelve candidates[0] como fallback.
-    """
+# ---------- filtros visibles ----------
+def _detect_col(cur, table: str, col: str) -> bool:
     try:
-        cur = conn.cursor()
         cur.execute(f"PRAGMA table_info({table})")
-        cols = []
-        for r in cur.fetchall():
-            try:
-                cols.append(r["name"])
-            except Exception:
-                cols.append(r[1])  # (cid, name, type, notnull, dflt, pk)
-        for c in candidates:
-            if c in cols:
-                return c
+        cols = [r[1] for r in cur.fetchall()]
+        return col in cols
     except Exception:
-        pass
-    return candidates[0]
+        return False
 
+def _partidos_visibles_para_jugador(conn, jugador_id: int):
+    cur = conn.cursor()
+    # Sólo partidos publicados y (sin grupo o grupo del jugador)
+    cur.execute("""
+        SELECT p.id, p.fecha, p.hora_inicio, p.cancha_id, p.publicado, p.grupo_id
+        FROM partidos p
+        WHERE p.publicado = 1
+        ORDER BY p.fecha, p.hora_inicio
+    """)
+    filas = _rows_to_dicts(cur.fetchall())
 
-# ---------- Partidos visibles (robusto: sin grupos = visible a todos) ----------
-def _partidos_visibles_para_jugador(jugador_id: int):
-    today_iso = date.today().isoformat()
-    now_ar = _now_ar_str()
+    # Filtro por grupo si existe esa columna en jugadores (seguridad)
+    grupos_col = _detect_col(cur, "jugadores", "grupo_id")
+    if grupos_col and jugador_id:
+        cur.execute("SELECT grupo_id FROM jugadores WHERE id=?", (jugador_id,))
+        r = _row_to_dict(cur.fetchone())
+        gid = int(r["grupo_id"] or 0) if r else 0
+        filas = [f for f in filas if (int(f.get("grupo_id") or 0) in (0, gid))]
 
-    with get_connection() as conn:
-        cur = conn.cursor()
+    return filas
 
-        # Detectar nombres de columna reales en tablas puente
-        jg_col = _detect_col(conn, "jugador_grupos", ["grupo_id", "group_id", "grupo"])
-        pg_col = _detect_col(conn, "partido_grupos", ["grupo_id", "group_id", "grupo"])
-
-        # Grupos del jugador (tabla M2M)
-        grupos_jugador = []
-        try:
-            cur.execute(f"SELECT {jg_col} FROM jugador_grupos WHERE jugador_id = ?", (jugador_id,))
-            for r in cur.fetchall():
-                try:
-                    grupos_jugador.append(r[jg_col])
-                except Exception:
-                    grupos_jugador.append(r[0])
-        except Exception:
-            pass
-
-        # Fallback legacy: jugadores.grupo_id
-        if not grupos_jugador:
-            try:
-                cur.execute("PRAGMA table_info(jugadores)")
-                has_gcol = False
-                for r in cur.fetchall():
-                    try:
-                        nm = r["name"]
-                    except Exception:
-                        nm = r[1]
-                    if nm == "grupo_id":
-                        has_gcol = True
-                        break
-                if has_gcol:
-                    cur.execute("SELECT grupo_id FROM jugadores WHERE id = ?", (jugador_id,))
-                    rr = cur.fetchone()
-                    if rr:
-                        try:
-                            g = rr["grupo_id"]
-                        except Exception:
-                            g = rr[0]
-                        if g is not None:
-                            grupos_jugador = [g]
-            except Exception:
-                pass
-
-        # Clausula de grupos:
-        # - Si el partido NO tiene filas en partido_grupos -> visible para todos.
-        # - Si tiene, debe intersectar con un grupo del jugador.
-        if grupos_jugador:
-            placeholders = ",".join("?" * len(grupos_jugador))
-            group_clause = f"""
-              AND (
-                    NOT EXISTS (SELECT 1 FROM partido_grupos pg WHERE pg.partido_id = p.id)
-                 OR EXISTS (SELECT 1 FROM partido_grupos pg
-                            WHERE pg.partido_id = p.id AND pg.{pg_col} IN ({placeholders}))
-              )
-            """
-            group_params = tuple(int(x) for x in grupos_jugador)
-        else:
-            group_clause = """
-              AND NOT EXISTS (SELECT 1 FROM partido_grupos pg WHERE pg.partido_id = p.id)
-            """
-            group_params = ()
-
-        # Partidos “disponibles”: próximos, sin resultado, (tipo abierto o null),
-        # respetando publicar_desde (si existe).
-        sql = f"""
-            SELECT
-              p.id, p.fecha, p.cancha_id, p.hora, p.tipo, p.ganador, p.diferencia_gol, p.publicar_desde
-            FROM partidos p
-            LEFT JOIN canchas c ON c.id = p.cancha_id
-            WHERE substr(p.fecha, 1, 10) >= ?
-              AND (p.tipo IS NULL OR p.tipo = 'abierto')
-              AND p.ganador IS NULL
-              AND (p.diferencia_gol IS NULL OR TRIM(p.diferencia_gol) = '')
-              AND (p.publicar_desde IS NULL OR p.publicar_desde <= ?)
-              {group_clause}
-            ORDER BY datetime(p.fecha), p.id
-        """
-        params = [today_iso, now_ar] + list(group_params)
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-
-        # Convertir a dict de forma segura con cur.description
-        cols = [d[0] for d in cur.description] if cur.description else []
-        out = []
-        for r in rows:
-            try:
-                out.append(dict(r))
-            except Exception:
-                out.append({cols[i]: r[i] for i in range(len(cols))})
-        return out
-
-
-# ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
+# =========================
+# Panel: menú del jugador
+# =========================
 def panel_menu_jugador(user):
     # Disparo LAZY: materializar programaciones vencidas al entrar
     try:
@@ -435,137 +286,145 @@ def panel_menu_jugador(user):
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles"):
-            st.session_state["jugador_page"] = "partidos"; st.rerun()
+        st.link_button("Ver partidos disponibles ⚽", _page_url("partidos"), key="lnk_partidos")
     with c2:
-        if st.button("Ver mis estadísticas 📊", key="btn_mis_stats"):
-            st.session_state["jugador_page"] = "stats"; st.rerun()
+        st.link_button("Ver mis estadísticas 📊", _page_url("stats"), key="lnk_stats")
     with c3:
-        if st.button("Ver mi perfil 👤", key="btn_mi_perfil"):
-            st.session_state["jugador_page"] = "perfil"; st.rerun()
+        st.link_button("Ver mi perfil 👤", _page_url("perfil"), key="lnk_perfil")
 
+    with st.expander("Notas / novedades"):
+        st.write("- Podés entrar directo con links: `?auth=<TOKEN>&page=partidos|stats|perfil`")
 
+# =========================
+# Panel: Partidos disponibles
+# =========================
 def panel_partidos_disponibles(user):
     _render_flash()
-
     jugador_id = user.get("jugador_id")
+
+    # Validaciones de vínculo
     if not jugador_id:
-        st.warning("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule.")
+        st.subheader("No estás vinculado a un jugador.")
+        st.info("Pedile al admin que te vincule.")
         if st.button("⬅️ Volver", key="back_sin_vinculo"):
-            st.session_state["jugador_page"] = "menu"; st.rerun()
+            set_url_page("menu")
+            st.session_state["jugador_page"] = "menu"
+            st.rerun()
         return
 
     st.subheader("Partidos disponibles")
 
-    partidos = _partidos_visibles_para_jugador(jugador_id)
-    if not partidos:
-        st.info("No hay partidos disponibles para tu grupo por el momento.")
-        if st.button("⬅️ Volver", key="back_sin_partidos"):
-            st.session_state["jugador_page"] = "menu"; st.rerun()
-        return
+    with get_connection() as conn:
+        visibles = _partidos_visibles_para_jugador(conn, jugador_id)
+        if not visibles:
+            st.info("No hay partidos publicados para tu grupo por el momento.")
+            if st.button("⬅️ Volver", key="back_sin_partidos"):
+                set_url_page("menu")
+                st.session_state["jugador_page"] = "menu"
+                st.rerun()
+            return
 
-    for p in partidos:
-        partido_id = p["id"]
-        fecha = p["fecha"]
-        hora_lbl = time_label_from_int(p["hora"])
-        cancha_name = _cancha_label(p["cancha_id"])
-        inscritos = _jugadores_en_partido(partido_id)
-        count = len(inscritos)
-        wl = _waitlist_get(partido_id)
-        wl_count = len(wl)
+        for p in visibles:
+            st.divider()
+            partido_id = int(p["id"])
+            fecha = p["fecha"]
+            hora = int(p["hora_inicio"] or 0)
 
-        yo_en_roster = any(j["jugador_id"] == jugador_id for j in inscritos)
-        yo_en_espera = _waitlist_is_in(partido_id, jugador_id)
+            # cancha
+            cur = conn.cursor()
+            cur.execute("SELECT id, nombre, direccion FROM canchas WHERE id=?", (p["cancha_id"],))
+            cancha = _row_to_dict(cur.fetchone())
+            cancha_txt = _cancha_label(cancha)
 
-        badges = []
-        if count >= CUPO_PARTIDO:
-            badges.append("🧍‍🧍 Partido completo")
-        if yo_en_roster:
-            badges.append("✅ Confirmado")
-        elif yo_en_espera:
-            badges.append("🕒 En lista de espera")
+            # roster
+            inscritos = _jugadores_en_partido(conn, partido_id)
+            total = len(inscritos)
+            cupo = CUPO_PARTIDO
+            espera = CUPO_ESPERA
 
-        badge_txt = (" – " + " • ".join(badges)) if badges else ""
+            # ya está inscripto?
+            yo = next((j for j in inscritos if j["jugador_id"] == jugador_id), None)
+            ya_inscripto = yo is not None
 
-        fecha_es = _format_fecha_ddmmyyyy(fecha)
-        dia_es = _weekday_es(fecha)
-        titulo = f"{fecha_es} ({dia_es}) • {hora_lbl} hs • {cancha_name}{badge_txt}"
+            # waitlist
+            wl_count = _waitlist_count(conn, partido_id)
+            en_waitlist = _waitlist_is_in(conn, partido_id, jugador_id)
 
-        with st.expander(titulo, expanded=False):
-            # Equipos generados => mostrar equipos; si no, lista simple
-            if _equipos_estan_generados(partido_id):
-                _render_equipos(partido_id, inscritos)
-            else:
-                st.write("### Inscripciones")
-                if inscritos:
-                    cols = st.columns(2)
-                    for i, j in enumerate(inscritos):
-                        mark = "🟢" if j["confirmado_por_jugador"] else "🔵"
-                        extra = " (WL)" if j.get("ingreso_desde_espera") else ""
-                        with cols[i % 2]:
-                            st.write(f"{mark} {j['nombre']}{extra}")
-                else:
-                    st.write("_Aún no hay inscriptos._")
+            # Cabecera tarjeta
+            st.markdown(f"### { _weekday_es(fecha) } { _format_fecha_ddmmyyyy(fecha) } — { time_label_from_int(hora) }")
+            st.caption(cancha_txt)
 
-            st.write("---")
-            c1, c2 = st.columns(2)
-            with c1:
-                can_confirm = (not yo_en_roster) and (count < CUPO_PARTIDO)
-                if st.button("Confirmar asistencia", key=f"confirm_{partido_id}", disabled=not can_confirm):
-                    with get_connection() as conn:
+            # cupo info
+            st.write(f"**Inscritos**: {total}/{cupo}  |  **Espera**: {wl_count}/{espera}")
+
+            # Equipos si existen
+            if _equipos_estan_generados(conn, partido_id):
+                _render_equipos(conn, partido_id)
+
+            # Acciones
+            ac1, ac2, ac3 = st.columns(3)
+            with ac1:
+                if not ya_inscripto and total < cupo:
+                    if st.button("Anotarme ✅", key=f"btn_in_{partido_id}"):
                         cur = conn.cursor()
-                        cur.execute("""
-                            INSERT OR IGNORE INTO partido_jugadores (partido_id, jugador_id, confirmado_por_jugador, camiseta, ingreso_desde_espera)
-                            VALUES (?, ?, 1, 'clara', 0)
-                        """, (partido_id, jugador_id))
+                        cur.execute("INSERT OR IGNORE INTO inscritos_partido (partido_id, jugador_id, equipo) VALUES (?, ?, 0)", (partido_id, jugador_id))
                         conn.commit()
-                    _push_flash("Confirmaste tu asistencia 🟢", "success")
-                    st.rerun()
-
-                can_join_wl = (not yo_en_roster) and (not yo_en_espera) and (count >= CUPO_PARTIDO) and (wl_count < CUPO_ESPERA)
-                if st.button("Anotarme en lista de espera", key=f"join_wl_{partido_id}", disabled=not can_join_wl):
-                    ok, msg = _waitlist_join(partido_id, jugador_id)
-                    _push_flash(msg, "success" if ok else "warning")
-                    st.rerun()
-
-            with c2:
-                if yo_en_roster:
-                    if st.button("Cancelar asistencia", key=f"cancel_{partido_id}"):
-                        with get_connection() as conn:
-                            cur = conn.cursor()
-                            cur.execute("DELETE FROM partido_jugadores WHERE partido_id=? AND jugador_id=?",
-                                        (partido_id, jugador_id))
-                            conn.commit()
-                        # desarmar equipos
-                        _reset_equipos(partido_id)
-                        # promover
-                        promoted = _promote_from_waitlist_if_possible(partido_id)
-                        if promoted:
-                            _push_flash("Cancelaste tu asistencia. Se promovió al primero de la lista de espera.", "info")
-                        else:
-                            _push_flash("Cancelaste tu asistencia.", "info")
+                        _push_flash("Inscripción registrada.", "success")
                         st.rerun()
-
-                if yo_en_espera:
-                    if st.button("Salir de lista de espera", key=f"leave_wl_{partido_id}"):
-                        ok, msg = _waitlist_leave(partido_id, jugador_id)
-                        _push_flash(msg, "success" if ok else "warning")
+                elif ya_inscripto:
+                    if st.button("Bajarme ❌", key=f"btn_out_{partido_id}"):
+                        cur = conn.cursor()
+                        cur.execute("DELETE FROM inscritos_partido WHERE partido_id=? AND jugador_id=?", (partido_id, jugador_id))
+                        conn.commit()
+                        # puede promover a waitlist
+                        _promote_from_waitlist_if_possible(conn, partido_id)
+                        _push_flash("Inscripción cancelada.", "warning")
                         st.rerun()
+                else:
+                    st.button("Cupo completo", key=f"btn_full_{partido_id}", disabled=True)
 
-            st.write("---")
-            st.write(f"**Lista de espera** ({wl_count}/{CUPO_ESPERA})")
-            if wl:
-                for i, w in enumerate(wl, start=1):
-                    me = " ← vos" if w["jugador_id"] == jugador_id else ""
-                    st.write(f"{i}. {w['nombre']}{me}")
-            else:
-                st.write("_Vacía_")
+            with ac2:
+                if not ya_inscripto and total >= cupo:
+                    # join waitlist
+                    if not en_waitlist and wl_count < espera:
+                        if st.button("Unirme a lista de espera ⏳", key=f"btn_wl_in_{partido_id}"):
+                            _waitlist_join(conn, partido_id, jugador_id)
+                            _push_flash("Te uniste a la lista de espera.", "info")
+                            st.rerun()
+                    elif en_waitlist:
+                        if st.button("Salir de lista de espera ↩️", key=f"btn_wl_out_{partido_id}"):
+                            _waitlist_leave(conn, partido_id, jugador_id)
+                            _push_flash("Saliste de la lista de espera.", "warning")
+                            st.rerun()
+                    else:
+                        st.button("Lista de espera completa", key=f"btn_wl_full_{partido_id}", disabled=True)
+
+            with ac3:
+                # marcador de “soy yo”
+                if yo:
+                    st.success("Estás inscripto ✅")
+                elif en_waitlist:
+                    st.info("Estás en espera ⏳")
+
+            # Mostrar waitlist
+            with st.expander("Lista de espera"):
+                wl = _waitlist_get(conn, partido_id)
+                if wl:
+                    for i, w in enumerate(wl, start=1):
+                        me = " ← vos" if w["jugador_id"] == jugador_id else ""
+                        st.write(f"{i}. {w['nombre']}{me}")
+                else:
+                    st.write("_Vacía_")
 
     st.divider()
     if st.button("⬅️ Volver", key="back_partidos"):
-        st.session_state["jugador_page"] = "menu"; st.rerun()
+        set_url_page("menu")
+        st.session_state["jugador_page"] = "menu"
+        st.rerun()
 
-
+# =========================
+# Panel: Estadísticas (reenvía a módulo dedicado si existe)
+# =========================
 def panel_mis_estadisticas(user):
     try:
         import jugador_stats
@@ -573,133 +432,80 @@ def panel_mis_estadisticas(user):
     except Exception as e:
         _render_flash()
         st.subheader("Mis estadísticas")
-        st.error("No se pudo cargar el módulo de estadísticas (jugador_stats.py).")
-        st.exception(e)
+        st.info("El módulo `jugador_stats.py` no está disponible o falló. Mostramos un placeholder.")
+        st.write("• ELO actual, goles, asistencias, rachas, últimas 10 actuaciones…")
+        st.write("• Agregá `jugador_stats.py` para la vista completa.")
         st.divider()
         if st.button("⬅️ Volver", key="back_stats_missing_mod"):
-            st.session_state["jugador_page"] = "menu"; st.rerun()
+            set_url_page("menu")
+            st.session_state["jugador_page"] = "menu"
+            st.rerun()
         return
 
-
+# =========================
+# Panel: Perfil del jugador
+# =========================
 def panel_mi_perfil(user):
-    import streamlit as st
-    from db import get_connection
-    import hashlib
+    _render_flash()
+    st.subheader("Mi perfil")
+    jugador_id = user.get("jugador_id")
 
-    st.subheader("👤 Mi perfil")
-
-    # Helpers locales para convertir filas a dict (Row o tupla)
-    def _row_to_dict(cur, row):
-        if row is None:
-            return None
-        try:
-            return dict(row)  # sqlite3.Row
-        except Exception:
-            cols = [d[0] for d in cur.description] if cur.description else []
-            return {cols[i]: row[i] for i in range(len(cols))}
-
-    # Normalizar el user que llega
-    try:
-        uid = user.get("id") if isinstance(user, dict) else None
-    except Exception:
-        uid = None
-    if not uid:
-        st.error("No se encontró el ID de tu usuario en sesión.")
+    if not jugador_id:
+        st.warning("No hay jugador vinculado a este usuario.")
+        if st.button("⬅️ Volver", key="back_perfil"):
+            set_url_page("menu")
+            st.session_state["jugador_page"] = "menu"
+            st.rerun()
         return
 
+    # Datos básicos
     with get_connection() as conn:
         cur = conn.cursor()
+        cur.execute("""
+            SELECT id, nombre, camiseta_fetiche AS camiseta, color_camiseta AS color_camiseta
+            FROM jugadores
+            WHERE id=?
+        """, (jugador_id,))
+        j = _row_to_dict(cur.fetchone())
 
-        # Traer datos del usuario logueado
-        cur.execute("SELECT * FROM usuarios WHERE id = ? LIMIT 1", (uid,))
-        u = _row_to_dict(cur, cur.fetchone())
-        if not u:
-            st.error("No se encontró tu usuario.")
+        if not j:
+            st.error("Jugador no encontrado.")
+            if st.button("⬅️ Volver", key="back_perfil"):
+                set_url_page("menu")
+                st.session_state["jugador_page"] = "menu"
+                st.rerun()
             return
 
-        jugador_id = u.get("jugador_id")
-        jugador_nombre = None
-        if jugador_id:
-            cur.execute("SELECT nombre FROM jugadores WHERE id = ?", (jugador_id,))
-            j = _row_to_dict(cur, cur.fetchone())
-            jugador_nombre = (j or {}).get("nombre")
+        st.write(f"**Nombre:** {j['nombre']}")
+        st.write(f"**Camiseta preferida:** {j.get('camiseta') or '-'}")
+        st.write(f"**Color preferido:** {j.get('color_camiseta') or '-'}")
 
-        # ───────────────────────────────────────────────
-        # Nombre del jugador
-        # ───────────────────────────────────────────────
-        st.markdown("#### Nombre de jugador")
-        if not jugador_id:
-            st.info("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule para poder editar tu nombre visible.")
-        else:
-            nuevo_nombre = st.text_input(
-                "Nombre visible en las planillas",
-                value=jugador_nombre or "",
-                key="perfil_nombre_visible",
-            )
-            if st.button("Guardar nombre", key="perfil_btn_guardar_nombre"):
-                nombre_ok = (nuevo_nombre or "").strip()
-                if not nombre_ok:
-                    st.warning("Ingresá un nombre válido.")
-                else:
-                    cur.execute("UPDATE jugadores SET nombre = ? WHERE id = ?", (nombre_ok, jugador_id))
-                    conn.commit()
-                    st.success("Nombre actualizado.")
-                    st.rerun()
+        # Editor simple de preferencias
+        st.divider()
+        st.markdown("### Preferencias")
 
-        st.markdown("---")
+        nueva_camiseta = st.text_input("Camiseta fetiche", value=j.get("camiseta") or "", key="inp_camiseta_fetiche")
+        nueva_color = st.selectbox("Color preferido", ["", "oscura", "clara"], index=["","oscura","clara"].index(j.get("color_camiseta") or ""), key="sel_color_camiseta")
 
-        # ───────────────────────────────────────────────
-        # Cambio de contraseña (si existe columna)
-        # ───────────────────────────────────────────────
-        st.markdown("#### Cambiar contraseña")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Guardar cambios 💾", key="btn_save_perfil"):
+                cur.execute("""
+                    UPDATE jugadores
+                    SET camiseta_fetiche=?, color_camiseta=?
+                    WHERE id=?
+                """, (nueva_camiseta or None, nueva_color or None, jugador_id))
+                conn.commit()
+                _push_flash("Perfil actualizado.", "success")
+                st.rerun()
 
-        # Detectar qué columna de contraseña tiene la tabla usuarios
-        cur.execute("PRAGMA table_info(usuarios)")
-        pragma_rows = cur.fetchall()
-        colnames = []
-        for r in pragma_rows:
-            try:
-                colnames.append(r["name"])
-            except Exception:
-                # PRAGMA table_info devuelve: (cid, name, type, notnull, dflt_value, pk)
-                colnames.append(r[1])
+        with c2:
+            if st.button("Descartar cambios ↩️", key="btn_cancel_perfil"):
+                _push_flash("Cambios descartados.", "warning")
+                st.rerun()
 
-        target_col = None
-        hash_mode = False
-        if "password_hash" in colnames:
-            target_col = "password_hash"
-            hash_mode = True
-        elif "password" in colnames:
-            target_col = "password"
-        elif "pwd" in colnames:
-            target_col = "pwd"
-
-        if not target_col:
-            st.caption("La tabla de usuarios no tiene columna de contraseña. El admin puede habilitarla desde el panel de usuarios.")
-        else:
-            pwd1 = st.text_input("Nueva contraseña", type="password", key="perfil_pwd1")
-            pwd2 = st.text_input("Repetir contraseña", type="password", key="perfil_pwd2")
-            if st.button("Guardar contraseña", key="perfil_btn_guardar_pwd"):
-                if not pwd1:
-                    st.warning("Ingresá una contraseña.")
-                elif pwd1 != pwd2:
-                    st.error("Las contraseñas no coinciden.")
-                elif len(pwd1) < 4:
-                    st.warning("Usá al menos 4 caracteres.")
-                else:
-                    value = pwd1
-                    if hash_mode:
-                        # Si tenés hash en usuarios.py, usalo; sino, SHA-256 como fallback.
-                        try:
-                            from usuarios import hash_password
-                            value = hash_password(pwd1)
-                        except Exception:
-                            value = hashlib.sha256(pwd1.encode("utf-8")).hexdigest()
-
-                    cur.execute(f"UPDATE usuarios SET {target_col} = ? WHERE id = ?", (value, uid))
-                    conn.commit()
-                    st.success("Contraseña actualizada.")
-                    st.rerun()
-
+    st.divider()
     if st.button("⬅️ Volver", key="back_perfil"):
-        st.session_state["jugador_page"] = "menu"; st.rerun()
+        set_url_page("menu")
+        st.session_state["jugador_page"] = "menu"
+        st.rerun()
