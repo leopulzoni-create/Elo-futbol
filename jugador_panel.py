@@ -395,25 +395,40 @@ def _page_url(page: str) -> str:
     return f"?{urlencode(params)}"
 
 
+def _inject_link_styles():
+    # Inserta CSS una sola vez por sesión para estilizar los <a> como botones Streamlit
+    if not st.session_state.get("_btnlink_css_injected"):
+        st.markdown("""
+        <style>
+        .btnlink {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            white-space: nowrap;
+            padding: .55rem 1rem;
+            border: 1px solid rgba(49,51,63,.35);
+            border-radius: .75rem;
+            font-weight: 600;
+            text-decoration: none !important;
+            color: inherit !important;          /* evita azul de los <a> */
+            background: rgba(49,51,63,.20);     /* suave en tema oscuro */
+            line-height: 1.2;
+        }
+        .btnlink:hover {
+            border-color: rgba(49,51,63,.55);
+            background: rgba(49,51,63,.30);
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        st.session_state["_btnlink_css_injected"] = True
+
+
 def _link_button(label: str, page: str):
     """Botón-link: navegación con recarga (misma pestaña) y estilo limpio."""
+    _inject_link_styles()
     url = _page_url(page)
     st.markdown(
-        f"""
-        <a href="{url}" target="_self" style="text-decoration:none;">
-          <div style="
-            display:inline-flex;
-            align-items:center;
-            gap:.5rem;
-            white-space:nowrap;
-            padding:0.6rem 1rem;
-            border:1px solid rgba(49,51,63,.2);
-            border-radius:.5rem;
-            font-weight:600;">
-            {label}
-          </div>
-        </a>
-        """,
+        f'<a class="btnlink" href="{url}" target="_self">{label}</a>',
         unsafe_allow_html=True,
     )
 
@@ -569,8 +584,6 @@ def panel_partidos_disponibles(user):
 
 def panel_mis_estadisticas(user):
     _render_flash()
-    # Guardamos el estado previo para detectar si el módulo externo nos mandó a "menu"
-    prev_page = st.session_state.get("jugador_page")
     try:
         import jugador_stats
         jugador_stats.panel_mis_estadisticas(user)
@@ -579,15 +592,10 @@ def panel_mis_estadisticas(user):
         st.error("No se pudo cargar el módulo de estadísticas (jugador_stats.py).")
         st.exception(e)
 
-    # Si el módulo cambió el estado a "menu" pero la URL no lo refleja, la sincronizamos nosotros:
-    cur_page_state = st.session_state.get("jugador_page")
-    cur_page_url = current_page_in_url(default="menu")
-    if cur_page_state == "menu" and cur_page_url != "menu":
-        set_url_page("menu")
-        st.rerun()
-
     st.divider()
-    # NO agrego otro "Volver": queda el propio del módulo; evitamos duplicado visible.
+    # ÚNICO “Volver” (mismo estilo y comportamiento que el resto)
+    _link_button("⬅️ Volver", "menu")
+
 
 
 def panel_mi_perfil(user):
