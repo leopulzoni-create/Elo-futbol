@@ -439,22 +439,24 @@ def _link_button(label: str, page: str):
             params["auth"] = tok
     except Exception:
         pass
-    url = f"?{urlencode(params)}"
+    # 👇 nota el "./?" para que la barra de direcciones cambie siempre
+    url = f"./?{urlencode(params)}"
     st.markdown(f'<a class="btnlink" href="{url}" target="_self">{label}</a>', unsafe_allow_html=True)
 
 
 def _menu_links_row():
-    """Fila de 3 botones del menú, perfectamente alineados y centrados."""
+    """Fila de 3 botones del menú, perfectamente alineados y centrados (URL se actualiza)."""
     _inject_link_styles()
+    tok = current_token_in_url()
+    auth = f"&auth={tok}" if tok else ""
     html = f'''
     <div class="btnrow">
-      <div class="btncell"><a class="btnlink" href="?page=partidos{f"&auth={current_token_in_url()}" if current_token_in_url() else ""}" target="_self">Ver partidos disponibles ⚽</a></div>
-      <div class="btncell"><a class="btnlink" href="?page=stats{f"&auth={current_token_in_url()}" if current_token_in_url() else ""}" target="_self">Ver mis estadísticas 📊</a></div>
-      <div class="btncell"><a class="btnlink" href="?page=perfil{f"&auth={current_token_in_url()}" if current_token_in_url() else ""}" target="_self">Ver mi perfil 👤</a></div>
+      <div class="btncell"><a class="btnlink" href="./?page=partidos{auth}" target="_self">Ver partidos disponibles ⚽</a></div>
+      <div class="btncell"><a class="btnlink" href="./?page=stats{auth}" target="_self">Ver mis estadísticas 📊</a></div>
+      <div class="btncell"><a class="btnlink" href="./?page=perfil{auth}" target="_self">Ver mi perfil 👤</a></div>
     </div>
     '''
     st.markdown(html, unsafe_allow_html=True)
-
 
 
 # ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
