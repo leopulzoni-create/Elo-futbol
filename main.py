@@ -1,13 +1,26 @@
 import streamlit as st
+import streamlit.components.v1 as components  # ← para el listener de popstate
 from auth import verify_user
 import scheduler  # dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
 ensure_admin_user()
-import streamlit.components.v1 as components
+
+# JS mínimo: si el usuario toca Atrás/Adelante, recarga la app para que lea los nuevos query params
+def _install_popstate_reload():
+    components.html("""
+    <script>
+    (function(){
+      if (window.__stPopstateInstalled) return;
+      window.__stPopstateInstalled = true;
+      window.addEventListener('popstate', function(){
+        try { window.parent.location.reload(); } catch(e) { location.reload(); }
+      });
+    })();
+    </script>
+    """, height=0)
 
 # Persistencia de sesión vía token en URL (usa remember.py con st.query_params)
 from remember import (
-    _install_popstate_reload()
     ensure_tables,
     validate_token,
     issue_token,
@@ -15,9 +28,12 @@ from remember import (
     current_token_in_url,
     set_url_token,
     clear_url_token,
-    current_page_in_url,   # ← NUEVO deep-link
-    set_url_page,          # ← NUEVO deep-link
+    current_page_in_url,   # ← deep-link
+    set_url_page,          # ← deep-link
 )
+
+# instalar listener de popstate (para que la flecha Atrás/Adelante refresque la app)
+_install_popstate_reload()
 
 # ==================================================
 #  Autologin por token (persistencia de sesión)
@@ -164,7 +180,7 @@ else:
         st.header(f"Panel Jugador - {user['username']}")
 
         # Router con DEEP-LINK: si la URL trae ?page=xyz, sincronizamos el estado inicial
-        url_page = current_page_in_url(default="menu")  # ← NUEVO deep-link
+        url_page = current_page_in_url(default="menu")  # ← deep-link
         if "jugador_page" not in st.session_state:
             st.session_state.jugador_page = url_page
         else:
@@ -183,19 +199,5 @@ else:
             jugador_panel.panel_mi_perfil(user)
         else:
             st.session_state.jugador_page = "menu"
-            set_url_page("menu")  # ← NUEVO deep-link
+            set_url_page("menu")  # ← deep-link
             st.rerun()
-
-def _install_popstate_reload():
-    # JS mínimo: si el usuario toca Atrás/Adelante, recarga la app para que lea los nuevos query params
-    components.html("""
-    <script>
-    (function(){
-      if (window.__stPopstateInstalled) return;
-      window.__stPopstateInstalled = true;
-      window.addEventListener('popstate', function(){
-        try { window.parent.location.reload(); } catch(e) { location.reload(); }
-      });
-    })();
-    </script>
-    """, height=0)
