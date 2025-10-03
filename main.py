@@ -1,25 +1,11 @@
 import streamlit as st
-import streamlit.components.v1 as components  # ← para el listener de popstate
 from auth import verify_user
-import scheduler  # dispara materializaciones "lazy"
+import scheduler  # ⬅️ NUEVO: dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
 ensure_admin_user()
 
-# JS mínimo: si el usuario toca Atrás/Adelante, recarga la app para que lea los nuevos query params
-def _install_popstate_reload():
-    components.html("""
-    <script>
-    (function(){
-      if (window.__stPopstateInstalled) return;
-      window.__stPopstateInstalled = true;
-      window.addEventListener('popstate', function(){
-        try { window.parent.location.reload(); } catch(e) { location.reload(); }
-      });
-    })();
-    </script>
-    """, height=0)
 
-# Persistencia de sesión vía token en URL (usa remember.py con st.query_params)
+# Persistencia de sesión vía token en URL (usa remember.py actualizado con st.query_params)
 from remember import (
     ensure_tables,
     validate_token,
@@ -28,12 +14,7 @@ from remember import (
     current_token_in_url,
     set_url_token,
     clear_url_token,
-    current_page_in_url,   # ← deep-link
-    set_url_page,          # ← deep-link
 )
-
-# instalar listener de popstate (para que la flecha Atrás/Adelante refresque la app)
-_install_popstate_reload()
 
 # ==================================================
 #  Autologin por token (persistencia de sesión)
@@ -55,6 +36,7 @@ with col_title:
     st.title("Topo Partidos ⚽")
 with col_btn:
     if "user" in st.session_state:
+        # Botón compacto (solo ícono) alineado a la derecha
         st.markdown("<div style='text-align:right;'>", unsafe_allow_html=True)
         if st.button("🚪", key="btn_logout", help="Cerrar sesión"):
             tok = current_token_in_url()
@@ -65,10 +47,6 @@ with col_btn:
             for k in list(st.session_state.keys()):
                 if k in ("user", "admin_page", "jugador_page", "flash"):
                     del st.session_state[k]
-            # al salir dejo la URL limpia (sin page ni auth)
-            for qp in ("page", "auth"):
-                if qp in st.query_params:
-                    del st.query_params[qp]
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -81,7 +59,7 @@ if "user" not in st.session_state:
     if st.button("Ingresar"):
         user = verify_user(username, password)
         if user:
-            # Normalizar Row -> dict
+            # Normalizar Row -> dict (por si acaso)
             try:
                 if hasattr(user, "keys"):
                     user = {k: user[k] for k in user.keys()}
@@ -90,13 +68,13 @@ if "user" not in st.session_state:
 
             st.session_state.user = user
 
-            # Si se tilda "Mantener sesión", emitir token y guardarlo en el URL (?auth=...)
+            # Si se tilda "Mantener sesión", emitimos token y lo guardamos en el URL (?auth=...)
             if remember_me:
                 user_id = user.get("id")
                 if not user_id:
                     # Buscar id por username si verify_user no lo retornó
-                    from db import get_connection
-                    with get_connection() as conn:
+                    from db import get_connection      # ← NUEVO
+                    with get_connection() as conn:     # ← MODIFICADO
                         cur = conn.cursor()
                         cur.execute("SELECT id FROM usuarios WHERE username = ?", (user["username"],))
                         row = cur.fetchone()
@@ -105,8 +83,6 @@ if "user" not in st.session_state:
                     tok = issue_token(user_id)
                     set_url_token(tok)
 
-            # Al entrar, la página por defecto es el menú
-            set_url_page("menu")
             st.rerun()
         else:
             st.error("Usuario o contraseña incorrectos")
@@ -116,14 +92,15 @@ else:
     rol = user.get("rol")
     if rol is None:
         # deduce rol por is_admin si faltara
-        rol = "admin" if str(user.get("is_admin")).lower() in ("1", "true", "yes") else "jugador"
+        rol = "admin" if str(user.get("is_admin")).lower() in ("1", "true", "t", "yes") else "jugador"
+        user["rol"] = rol
+        st.session_state.user = user  # guarda la versión normalizada
+
 
     # ==================================================
     # PANEL ADMIN
     # ==================================================
     if rol == "admin":
-        st.warning("Estás logueado como administrador.", icon="⚠️")
-
         st.header(f"Panel Administrador - {user['username']}")
 
         # Guardamos qué página está activa
@@ -134,78 +111,83 @@ else:
         if st.session_state.admin_page is None:
             st.subheader("Selecciona una opción:")
             if st.button("1️⃣ Gestión de jugadores"):
-                st.session_state.admin_page = "jugadores"; st.rerun()
+                st.session_state.admin_page = "jugadores"
+                st.rerun()
             if st.button("2️⃣ Gestión de canchas"):
-                st.session_state.admin_page = "canchas"; st.rerun()
+                st.session_state.admin_page = "canchas"
+                st.rerun()
             if st.button("3️⃣ Gestión de partidos"):
-                st.session_state.admin_page = "crear_partido"; st.rerun()
+                st.session_state.admin_page = "crear_partido"
+                st.rerun()
             if st.button("4️⃣ Generar equipos"):
-                st.session_state.admin_page = "generar_equipos"; st.rerun()
+                st.session_state.admin_page = "generar_equipos"
+                st.rerun()
             if st.button("5️⃣ Registrar resultado"):
-                st.session_state.admin_page = "registrar_resultado"; st.rerun()
+                st.session_state.admin_page = "registrar_resultado"
+                st.rerun()
             if st.button("6️⃣ Historial"):
-                st.session_state.admin_page = "historial"; st.rerun()
-            if st.button("7️⃣ Administrar usuarios"):
-                st.session_state.admin_page = "usuarios"; st.rerun()
+                st.session_state.admin_page = "historial"
+                st.rerun()
+            if st.button("7️⃣ Administrar usuarios"):  # ← EXISTENTE
+                st.session_state.admin_page = "usuarios"
+                st.rerun()
+            # ---- NUEVOS BOTONES ----
             if st.button("8️⃣ Temporadas (cambio y cierre) 🗓️", key="btn_admin_temporadas"):
-                st.session_state.admin_page = "temporadas"; st.rerun()
+                st.session_state.admin_page = "temporadas"
+                st.rerun()
             if st.button("9️⃣ Estadísticas globales 📊", key="btn_admin_global_stats"):
-                st.session_state.admin_page = "estadisticas_globales"; st.rerun()
+                st.session_state.admin_page = "estadisticas_globales"
+                st.rerun()
 
         # --- CARGA DE MÓDULOS SEGÚN BOTÓN ---
         elif st.session_state.admin_page == "jugadores":
-            import jugadores; jugadores.panel_gestion()
+            import jugadores
+            jugadores.panel_gestion()
         elif st.session_state.admin_page == "canchas":
-            import canchas; canchas.panel_canchas()
+            import canchas
+            canchas.panel_canchas()
         elif st.session_state.admin_page == "crear_partido":
-            import partidos; partidos.panel_creacion()
+            import partidos
+            partidos.panel_creacion()
         elif st.session_state.admin_page == "generar_equipos":
-            import equipos; equipos.panel_generacion()
+            import equipos
+            equipos.panel_generacion()
         elif st.session_state.admin_page == "registrar_resultado":
-            import cargaresultados; cargaresultados.panel_resultados()
+            import cargaresultados
+            cargaresultados.panel_resultados()
         elif st.session_state.admin_page == "historial":
-            import historial; historial.panel_historial()
+            import historial
+            historial.panel_historial()
         elif st.session_state.admin_page == "usuarios":
-            import usuarios; usuarios.panel_gestion()
+            import usuarios
+            usuarios.panel_gestion()
+        # ---- NUEVAS RUTAS ----
         elif st.session_state.admin_page == "temporadas":
-            import admin_temporadas; admin_temporadas.panel_temporadas()
+            import admin_temporadas
+            admin_temporadas.panel_temporadas()
         elif st.session_state.admin_page == "estadisticas_globales":
-            import admin_stats; admin_stats.panel_estadisticas_globales()
+            import admin_stats
+            admin_stats.panel_estadisticas_globales()
 
     # ==================================================
     # PANEL JUGADOR
     # ==================================================
     elif rol == "jugador":
-        import jugador_panel  # módulo del panel jugador
+        import jugador_panel  # ← módulo del panel jugador
         st.header(f"Panel Jugador - {user['username']}")
 
-        # Router con DEEP-LINK: si la URL trae ?page=xyz, sincronizamos el estado inicial
-        url_page = current_page_in_url(default="menu")  # ← deep-link
+        # Router del panel jugador (no interfiere con admin_page)
         if "jugador_page" not in st.session_state:
-            st.session_state.jugador_page = url_page
-        else:
-            # si alguien pegó otro link con ?page=..., actualizar el estado
-            if url_page != st.session_state.jugador_page:
-                st.session_state.jugador_page = url_page
+            st.session_state.jugador_page = "menu"
 
-
-            # --- Sync URL con el estado del router (si difieren, actualiza ?page=...) ---
-        state_page = st.session_state.jugador_page
-        url_page_now = current_page_in_url(default="menu")
-        if url_page_now != state_page:
-            set_url_page(state_page)  # escribe st.query_params["page"] = state_page
-
-
-        # cargar vista
         if st.session_state.jugador_page == "menu":
             jugador_panel.panel_menu_jugador(user)
         elif st.session_state.jugador_page == "partidos":
             jugador_panel.panel_partidos_disponibles(user)
         elif st.session_state.jugador_page == "stats":
             jugador_panel.panel_mis_estadisticas(user)
-        elif st.session_state.jugador_page == "perfil":
-            jugador_panel.panel_mi_perfil(user)
+        elif st.session_state.jugador_page == "perfil":          # ← NUEVO
+            jugador_panel.panel_mi_perfil(user)                  # ← NUEVO
         else:
             st.session_state.jugador_page = "menu"
-            set_url_page("menu")  # ← deep-link
             st.rerun()

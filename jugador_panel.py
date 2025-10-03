@@ -6,10 +6,6 @@ import scheduler
 from datetime import date, datetime
 import pytz
 
-# Deep-links
-from urllib.parse import urlencode
-from remember import set_url_page, current_token_in_url, current_page_in_url
-
 DB_NAME = "elo_futbol.db"
 CUPO_PARTIDO = 10
 CUPO_ESPERA = 4
@@ -212,6 +208,13 @@ def _reset_equipos(partido_id):
 
 # ---------- Renderer de equipos con camisetas ----------
 def _render_equipos(partido_id, inscritos):
+    """
+    Muestra Equipo 1 y Equipo 2 con encabezado que indica la camiseta del equipo,
+    y cada jugador precedido por el mismo ícono de color (⬛ / ⬜).
+    - 'oscura' -> ⬛
+    - 'clara'  -> ⬜
+    """
+
     def _eq_num(x):
         try:
             return int(x) if x is not None else None
@@ -219,6 +222,10 @@ def _render_equipos(partido_id, inscritos):
             return None
 
     def _team_color_info(jug_list):
+        """
+        Devuelve (emoji, etiqueta) según la mayoría de 'camiseta' en jug_list.
+        Si hay empate o no hay datos, cae en 'clara' (⬜).
+        """
         if not jug_list:
             return "⬜", "clara"
         osc = sum(1 for j in jug_list if (j.get("camiseta") or "").lower() == "oscura")
@@ -227,6 +234,7 @@ def _render_equipos(partido_id, inscritos):
             return "⬛", "oscura"
         if cla > osc:
             return "⬜", "clara"
+        # Empate: tomar la primera camiseta válida si existe; si no, 'clara'
         for j in jug_list:
             c = (j.get("camiseta") or "").lower()
             if c == "oscura":
@@ -275,8 +283,12 @@ def _promote_from_waitlist_if_possible(partido_id):
     return True
 
 
-# ---------- Partidos visibles (robusto: sin grupos = visible a todos) ----------
+# ---------- Helpers para detección de columnas y conversión segura ----------
 def _detect_col(conn, table: str, candidates: list[str]) -> str:
+    """
+    Devuelve el primer nombre de columna que exista en `table` entre `candidates`.
+    Si no puede detectar nada, devuelve candidates[0] como fallback.
+    """
     try:
         cur = conn.cursor()
         cur.execute(f"PRAGMA table_info({table})")
@@ -285,7 +297,7 @@ def _detect_col(conn, table: str, candidates: list[str]) -> str:
             try:
                 cols.append(r["name"])
             except Exception:
-                cols.append(r[1])
+                cols.append(r[1])  # (cid, name, type, notnull, dflt, pk)
         for c in candidates:
             if c in cols:
                 return c
@@ -294,6 +306,7 @@ def _detect_col(conn, table: str, candidates: list[str]) -> str:
     return candidates[0]
 
 
+# ---------- Partidos visibles (robusto: sin grupos = visible a todos) ----------
 def _partidos_visibles_para_jugador(jugador_id: int):
     today_iso = date.today().isoformat()
     now_ar = _now_ar_str()
@@ -301,9 +314,11 @@ def _partidos_visibles_para_jugador(jugador_id: int):
     with get_connection() as conn:
         cur = conn.cursor()
 
+        # Detectar nombres de columna reales en tablas puente
         jg_col = _detect_col(conn, "jugador_grupos", ["grupo_id", "group_id", "grupo"])
         pg_col = _detect_col(conn, "partido_grupos", ["grupo_id", "group_id", "grupo"])
 
+        # Grupos del jugador (tabla M2M)
         grupos_jugador = []
         try:
             cur.execute(f"SELECT {jg_col} FROM jugador_grupos WHERE jugador_id = ?", (jugador_id,))
@@ -315,6 +330,7 @@ def _partidos_visibles_para_jugador(jugador_id: int):
         except Exception:
             pass
 
+        # Fallback legacy: jugadores.grupo_id
         if not grupos_jugador:
             try:
                 cur.execute("PRAGMA table_info(jugadores)")
@@ -340,6 +356,9 @@ def _partidos_visibles_para_jugador(jugador_id: int):
             except Exception:
                 pass
 
+        # Clausula de grupos:
+        # - Si el partido NO tiene filas en partido_grupos -> visible para todos.
+        # - Si tiene, debe intersectar con un grupo del jugador.
         if grupos_jugador:
             placeholders = ",".join("?" * len(grupos_jugador))
             group_clause = f"""
@@ -356,6 +375,8 @@ def _partidos_visibles_para_jugador(jugador_id: int):
             """
             group_params = ()
 
+        # Partidos “disponibles”: próximos, sin resultado, (tipo abierto o null),
+        # respetando publicar_desde (si existe).
         sql = f"""
             SELECT
               p.id, p.fecha, p.cancha_id, p.hora, p.tipo, p.ganador, p.diferencia_gol, p.publicar_desde
@@ -373,6 +394,7 @@ def _partidos_visibles_para_jugador(jugador_id: int):
         cur.execute(sql, params)
         rows = cur.fetchall()
 
+        # Convertir a dict de forma segura con cur.description
         cols = [d[0] for d in cur.description] if cur.description else []
         out = []
         for r in rows:
@@ -383,87 +405,13 @@ def _partidos_visibles_para_jugador(jugador_id: int):
         return out
 
 
-# ---------- Helper de deep-link: construir URL con auth + page ----------
-def _page_url(page: str) -> str:
-    params = {"page": page}
-    try:
-        tok = current_token_in_url()
-        if tok:
-            params["auth"] = tok
-    except Exception:
-        pass
-    return f"?{urlencode(params)}"
-
-
-def _inject_link_styles():
-    # CSS global para "botones-link" y la fila del menú
-    if not st.session_state.get("_btnlink_css_injected"):
-        st.markdown("""
-        <style>
-        /* Botón-link visualmente como botón Streamlit plano */
-        .btnlink {
-            display:inline-flex; align-items:center; gap:.5rem;
-            white-space:nowrap;
-            padding:.55rem 1rem;
-            border:1px solid rgba(49,51,63,.30);
-            border-radius:.75rem;
-            font-weight:500;                /* sin negrita fuerte */
-            text-decoration:none !important;
-            color:inherit !important;       /* evita azul del <a> */
-            background: rgba(49,51,63,.18); /* look plano en dark */
-            line-height:1.2;
-        }
-        .btnlink:hover {
-            border-color: rgba(49,51,63,.55);
-            background: rgba(49,51,63,.26);
-        }
-        /* Fila del menú: 3 columnas iguales, centradas y espaciadas */
-        .btnrow {
-            display:flex; justify-content:space-between; gap:1.25rem;
-            margin:.25rem 0 1rem 0;
-        }
-        .btncell { flex:1; display:flex; justify-content:center; }
-        </style>
-        """, unsafe_allow_html=True)
-        st.session_state["_btnlink_css_injected"] = True
-
-
-def _link_button(label: str, page: str):
-    """Botón-link: navega en la misma pestaña, mantiene ?auth y aplica estilo plano."""
-    _inject_link_styles()
-    from urllib.parse import urlencode
-    params = {"page": page}
-    try:
-        tok = current_token_in_url()
-        if tok:
-            params["auth"] = tok
-    except Exception:
-        pass
-    # 👇 nota el "./?" para que la barra de direcciones cambie siempre
-    url = f"./?{urlencode(params)}"
-    st.markdown(f'<a class="btnlink" href="{url}" target="_self">{label}</a>', unsafe_allow_html=True)
-
-
-def _menu_links_row():
-    """Fila de 3 botones del menú, perfectamente alineados y centrados (URL se actualiza)."""
-    _inject_link_styles()
-    tok = current_token_in_url()
-    auth = f"&auth={tok}" if tok else ""
-    html = f'''
-    <div class="btnrow">
-      <div class="btncell"><a class="btnlink" href="./?page=partidos{auth}" target="_self">Ver partidos disponibles ⚽</a></div>
-      <div class="btncell"><a class="btnlink" href="./?page=stats{auth}" target="_self">Ver mis estadísticas 📊</a></div>
-      <div class="btncell"><a class="btnlink" href="./?page=perfil{auth}" target="_self">Ver mi perfil 👤</a></div>
-    </div>
-    '''
-    st.markdown(html, unsafe_allow_html=True)
-
-
 # ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
 def panel_menu_jugador(user):
+    # Disparo LAZY: materializar programaciones vencidas al entrar
     try:
         scheduler.run_programaciones_vencidas()
     except Exception:
+        # Silencioso: si falla, no bloquea la vista del jugador
         pass
 
     if "jugador_page" not in st.session_state:
@@ -474,6 +422,7 @@ def panel_menu_jugador(user):
     username = user.get("username") or "jugador"
     jugador_id = user.get("jugador_id")
 
+    # nombre público
     nombre_vinculado = None
     if jugador_id:
         with get_connection() as conn:
@@ -484,7 +433,16 @@ def panel_menu_jugador(user):
 
     st.header(f"Bienvenido, {nombre_vinculado or username} 👋")
 
-    _menu_links_row()
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles"):
+            st.session_state["jugador_page"] = "partidos"; st.rerun()
+    with c2:
+        if st.button("Ver mis estadísticas 📊", key="btn_mis_stats"):
+            st.session_state["jugador_page"] = "stats"; st.rerun()
+    with c3:
+        if st.button("Ver mi perfil 👤", key="btn_mi_perfil"):
+            st.session_state["jugador_page"] = "perfil"; st.rerun()
 
 
 def panel_partidos_disponibles(user):
@@ -493,7 +451,8 @@ def panel_partidos_disponibles(user):
     jugador_id = user.get("jugador_id")
     if not jugador_id:
         st.warning("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule.")
-        _link_button("⬅️ Volver", "menu")
+        if st.button("⬅️ Volver", key="back_sin_vinculo"):
+            st.session_state["jugador_page"] = "menu"; st.rerun()
         return
 
     st.subheader("Partidos disponibles")
@@ -501,7 +460,8 @@ def panel_partidos_disponibles(user):
     partidos = _partidos_visibles_para_jugador(jugador_id)
     if not partidos:
         st.info("No hay partidos disponibles para tu grupo por el momento.")
-        _link_button("⬅️ Volver", "menu")
+        if st.button("⬅️ Volver", key="back_sin_partidos"):
+            st.session_state["jugador_page"] = "menu"; st.rerun()
         return
 
     for p in partidos:
@@ -532,6 +492,7 @@ def panel_partidos_disponibles(user):
         titulo = f"{fecha_es} ({dia_es}) • {hora_lbl} hs • {cancha_name}{badge_txt}"
 
         with st.expander(titulo, expanded=False):
+            # Equipos generados => mostrar equipos; si no, lista simple
             if _equipos_estan_generados(partido_id):
                 _render_equipos(partido_id, inscritos)
             else:
@@ -575,7 +536,9 @@ def panel_partidos_disponibles(user):
                             cur.execute("DELETE FROM partido_jugadores WHERE partido_id=? AND jugador_id=?",
                                         (partido_id, jugador_id))
                             conn.commit()
+                        # desarmar equipos
                         _reset_equipos(partido_id)
+                        # promover
                         promoted = _promote_from_waitlist_if_possible(partido_id)
                         if promoted:
                             _push_flash("Cancelaste tu asistencia. Se promovió al primero de la lista de espera.", "info")
@@ -599,38 +562,23 @@ def panel_partidos_disponibles(user):
                 st.write("_Vacía_")
 
     st.divider()
-    _link_button("⬅️ Volver", "menu")
+    if st.button("⬅️ Volver", key="back_partidos"):
+        st.session_state["jugador_page"] = "menu"; st.rerun()
 
 
 def panel_mis_estadisticas(user):
-    _render_flash()
-
-    # Hack seguro: ocultar cualquier botón "Volver" que renderice jugador_stats
-    # para evitar duplicados; luego agregamos el nuestro.
-    orig_button = st.button
-    def _filter_back(label, *args, **kwargs):
-        try:
-            if isinstance(label, str) and "Volver" in label:
-                return False  # lo "absorbe": no aparece ni actúa
-        except Exception:
-            pass
-        return orig_button(label, *args, **kwargs)
-
-    st.button = _filter_back
     try:
         import jugador_stats
-        jugador_stats.panel_mis_estadisticas(user)
+        return jugador_stats.panel_mis_estadisticas(user)
     except Exception as e:
+        _render_flash()
         st.subheader("Mis estadísticas")
         st.error("No se pudo cargar el módulo de estadísticas (jugador_stats.py).")
         st.exception(e)
-    finally:
-        # restaurar API
-        st.button = orig_button
-
-    st.divider()
-    # ÚNICO "Volver" estilizado y funcional (misma pestaña + deep-link)
-    _link_button("⬅️ Volver", "menu")
+        st.divider()
+        if st.button("⬅️ Volver", key="back_stats_missing_mod"):
+            st.session_state["jugador_page"] = "menu"; st.rerun()
+        return
 
 
 def panel_mi_perfil(user):
@@ -640,6 +588,7 @@ def panel_mi_perfil(user):
 
     st.subheader("👤 Mi perfil")
 
+    # Helpers locales para convertir filas a dict (Row o tupla)
     def _row_to_dict(cur, row):
         if row is None:
             return None
@@ -649,6 +598,7 @@ def panel_mi_perfil(user):
             cols = [d[0] for d in cur.description] if cur.description else []
             return {cols[i]: row[i] for i in range(len(cols))}
 
+    # Normalizar el user que llega
     try:
         uid = user.get("id") if isinstance(user, dict) else None
     except Exception:
@@ -660,6 +610,7 @@ def panel_mi_perfil(user):
     with get_connection() as conn:
         cur = conn.cursor()
 
+        # Traer datos del usuario logueado
         cur.execute("SELECT * FROM usuarios WHERE id = ? LIMIT 1", (uid,))
         u = _row_to_dict(cur, cur.fetchone())
         if not u:
@@ -673,6 +624,9 @@ def panel_mi_perfil(user):
             j = _row_to_dict(cur, cur.fetchone())
             jugador_nombre = (j or {}).get("nombre")
 
+        # ───────────────────────────────────────────────
+        # Nombre del jugador
+        # ───────────────────────────────────────────────
         st.markdown("#### Nombre de jugador")
         if not jugador_id:
             st.info("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule para poder editar tu nombre visible.")
@@ -694,8 +648,12 @@ def panel_mi_perfil(user):
 
         st.markdown("---")
 
+        # ───────────────────────────────────────────────
+        # Cambio de contraseña (si existe columna)
+        # ───────────────────────────────────────────────
         st.markdown("#### Cambiar contraseña")
 
+        # Detectar qué columna de contraseña tiene la tabla usuarios
         cur.execute("PRAGMA table_info(usuarios)")
         pragma_rows = cur.fetchall()
         colnames = []
@@ -703,6 +661,7 @@ def panel_mi_perfil(user):
             try:
                 colnames.append(r["name"])
             except Exception:
+                # PRAGMA table_info devuelve: (cid, name, type, notnull, dflt_value, pk)
                 colnames.append(r[1])
 
         target_col = None
@@ -730,6 +689,7 @@ def panel_mi_perfil(user):
                 else:
                     value = pwd1
                     if hash_mode:
+                        # Si tenés hash en usuarios.py, usalo; sino, SHA-256 como fallback.
                         try:
                             from usuarios import hash_password
                             value = hash_password(pwd1)
@@ -741,5 +701,5 @@ def panel_mi_perfil(user):
                     st.success("Contraseña actualizada.")
                     st.rerun()
 
-    st.divider()
-    _link_button("⬅️ Volver", "menu")
+    if st.button("⬅️ Volver", key="back_perfil"):
+        st.session_state["jugador_page"] = "menu"; st.rerun()
