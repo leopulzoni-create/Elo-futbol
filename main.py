@@ -188,6 +188,14 @@ else:
             if url_page != st.session_state.jugador_page:
                 st.session_state.jugador_page = url_page
 
+
+            # --- Sync URL con el estado del router (si difieren, actualiza ?page=...) ---
+        state_page = st.session_state.jugador_page
+        url_page_now = current_page_in_url(default="menu")
+        if url_page_now != state_page:
+            set_url_page(state_page)  # escribe st.query_params["page"] = state_page
+
+
         # cargar vista
         if st.session_state.jugador_page == "menu":
             jugador_panel.panel_menu_jugador(user)
