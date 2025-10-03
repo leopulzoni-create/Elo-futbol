@@ -396,41 +396,65 @@ def _page_url(page: str) -> str:
 
 
 def _inject_link_styles():
-    # Inserta CSS una sola vez por sesión para estilizar los <a> como botones Streamlit
+    # CSS global para "botones-link" y la fila del menú
     if not st.session_state.get("_btnlink_css_injected"):
         st.markdown("""
         <style>
+        /* Botón-link visualmente como botón Streamlit plano */
         .btnlink {
-            display: inline-flex;
-            align-items: center;
-            gap: .5rem;
-            white-space: nowrap;
-            padding: .55rem 1rem;
-            border: 1px solid rgba(49,51,63,.35);
-            border-radius: .75rem;
-            font-weight: 600;
-            text-decoration: none !important;
-            color: inherit !important;          /* evita azul de los <a> */
-            background: rgba(49,51,63,.20);     /* suave en tema oscuro */
-            line-height: 1.2;
+            display:inline-flex; align-items:center; gap:.5rem;
+            white-space:nowrap;
+            padding:.55rem 1rem;
+            border:1px solid rgba(49,51,63,.30);
+            border-radius:.75rem;
+            font-weight:500;                /* sin negrita fuerte */
+            text-decoration:none !important;
+            color:inherit !important;       /* evita azul del <a> */
+            background: rgba(49,51,63,.18); /* look plano en dark */
+            line-height:1.2;
         }
         .btnlink:hover {
             border-color: rgba(49,51,63,.55);
-            background: rgba(49,51,63,.30);
+            background: rgba(49,51,63,.26);
         }
+        /* Fila del menú: 3 columnas iguales, centradas y espaciadas */
+        .btnrow {
+            display:flex; justify-content:space-between; gap:1.25rem;
+            margin:.25rem 0 1rem 0;
+        }
+        .btncell { flex:1; display:flex; justify-content:center; }
         </style>
         """, unsafe_allow_html=True)
         st.session_state["_btnlink_css_injected"] = True
 
 
 def _link_button(label: str, page: str):
-    """Botón-link: navegación con recarga (misma pestaña) y estilo limpio."""
+    """Botón-link: navega en la misma pestaña, mantiene ?auth y aplica estilo plano."""
     _inject_link_styles()
-    url = _page_url(page)
-    st.markdown(
-        f'<a class="btnlink" href="{url}" target="_self">{label}</a>',
-        unsafe_allow_html=True,
-    )
+    from urllib.parse import urlencode
+    params = {"page": page}
+    try:
+        tok = current_token_in_url()
+        if tok:
+            params["auth"] = tok
+    except Exception:
+        pass
+    url = f"?{urlencode(params)}"
+    st.markdown(f'<a class="btnlink" href="{url}" target="_self">{label}</a>', unsafe_allow_html=True)
+
+
+def _menu_links_row():
+    """Fila de 3 botones del menú, perfectamente alineados y centrados."""
+    _inject_link_styles()
+    html = f'''
+    <div class="btnrow">
+      <div class="btncell"><a class="btnlink" href="?page=partidos{f"&auth={current_token_in_url()}" if current_token_in_url() else ""}" target="_self">Ver partidos disponibles ⚽</a></div>
+      <div class="btncell"><a class="btnlink" href="?page=stats{f"&auth={current_token_in_url()}" if current_token_in_url() else ""}" target="_self">Ver mis estadísticas 📊</a></div>
+      <div class="btncell"><a class="btnlink" href="?page=perfil{f"&auth={current_token_in_url()}" if current_token_in_url() else ""}" target="_self">Ver mi perfil 👤</a></div>
+    </div>
+    '''
+    st.markdown(html, unsafe_allow_html=True)
+
 
 
 # ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
@@ -458,13 +482,7 @@ def panel_menu_jugador(user):
 
     st.header(f"Bienvenido, {nombre_vinculado or username} 👋")
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        _link_button("Ver partidos disponibles ⚽", "partidos")
-    with c2:
-        _link_button("Ver mis estadísticas 📊", "stats")
-    with c3:
-        _link_button("Ver mi perfil 👤", "perfil")
+    _menu_links_row()
 
 
 def panel_partidos_disponibles(user):
@@ -584,6 +602,19 @@ def panel_partidos_disponibles(user):
 
 def panel_mis_estadisticas(user):
     _render_flash()
+
+    # Hack seguro: ocultar cualquier botón "Volver" que renderice jugador_stats
+    # para evitar duplicados; luego agregamos el nuestro.
+    orig_button = st.button
+    def _filter_back(label, *args, **kwargs):
+        try:
+            if isinstance(label, str) and "Volver" in label:
+                return False  # lo "absorbe": no aparece ni actúa
+        except Exception:
+            pass
+        return orig_button(label, *args, **kwargs)
+
+    st.button = _filter_back
     try:
         import jugador_stats
         jugador_stats.panel_mis_estadisticas(user)
@@ -591,11 +622,13 @@ def panel_mis_estadisticas(user):
         st.subheader("Mis estadísticas")
         st.error("No se pudo cargar el módulo de estadísticas (jugador_stats.py).")
         st.exception(e)
+    finally:
+        # restaurar API
+        st.button = orig_button
 
     st.divider()
-    # ÚNICO “Volver” (mismo estilo y comportamiento que el resto)
+    # ÚNICO "Volver" estilizado y funcional (misma pestaña + deep-link)
     _link_button("⬅️ Volver", "menu")
-
 
 
 def panel_mi_perfil(user):
