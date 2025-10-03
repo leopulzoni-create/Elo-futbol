@@ -6,7 +6,9 @@ import scheduler
 from datetime import date, datetime
 import pytz
 
-from remember import set_url_page, current_token_in_url  # deep-links
+# Deep-links
+from urllib.parse import urlencode
+from remember import set_url_page, current_token_in_url
 
 DB_NAME = "elo_futbol.db"
 CUPO_PARTIDO = 10
@@ -273,7 +275,7 @@ def _promote_from_waitlist_if_possible(partido_id):
     return True
 
 
-# ---------- Helpers para detección de columnas y conversión segura ----------
+# ---------- Partidos visibles (robusto: sin grupos = visible a todos) ----------
 def _detect_col(conn, table: str, candidates: list[str]) -> str:
     try:
         cur = conn.cursor()
@@ -292,7 +294,6 @@ def _detect_col(conn, table: str, candidates: list[str]) -> str:
     return candidates[0]
 
 
-# ---------- Partidos visibles (robusto: sin grupos = visible a todos) ----------
 def _partidos_visibles_para_jugador(jugador_id: int):
     today_iso = date.today().isoformat()
     now_ar = _now_ar_str()
@@ -382,6 +383,38 @@ def _partidos_visibles_para_jugador(jugador_id: int):
         return out
 
 
+# ---------- Helper de deep-link: construir URL con auth + page ----------
+def _page_url(page: str) -> str:
+    params = {"page": page}
+    try:
+        tok = current_token_in_url()
+        if tok:
+            params["auth"] = tok
+    except Exception:
+        pass
+    return f"?{urlencode(params)}"
+
+
+def _link_button(label: str, page: str):
+    """Botón-link: navegación dura (recarga) con ?auth y ?page."""
+    url = _page_url(page)
+    st.markdown(
+        f"""
+        <a href="{url}" target="_self" style="text-decoration:none;">
+          <div style="
+            display:inline-block;
+            padding:0.6rem 1rem;
+            border:1px solid rgba(49,51,63,.2);
+            border-radius:.5rem;
+            font-weight:600;">
+            {label}
+          </div>
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
 def panel_menu_jugador(user):
     try:
@@ -409,20 +442,11 @@ def panel_menu_jugador(user):
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("Ver partidos disponibles ⚽"):
-            set_url_page("partidos")                 # ← actualiza ?page
-            st.session_state["jugador_page"] = "partidos"
-            st.rerun()
+        _link_button("Ver partidos disponibles ⚽", "partidos")
     with c2:
-        if st.button("Ver mis estadísticas 📊"):
-            set_url_page("stats")                    # ← actualiza ?page
-            st.session_state["jugador_page"] = "stats"
-            st.rerun()
+        _link_button("Ver mis estadísticas 📊", "stats")
     with c3:
-        if st.button("Ver mi perfil 👤"):
-            set_url_page("perfil")                   # ← actualiza ?page
-            st.session_state["jugador_page"] = "perfil"
-            st.rerun()
+        _link_button("Ver mi perfil 👤", "perfil")
 
 
 def panel_partidos_disponibles(user):
@@ -431,10 +455,8 @@ def panel_partidos_disponibles(user):
     jugador_id = user.get("jugador_id")
     if not jugador_id:
         st.warning("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule.")
-        if st.button("⬅️ Volver"):
-            set_url_page("menu")
-            st.session_state["jugador_page"] = "menu"
-            st.rerun()
+        # Volver como link (recarga y vuelve al menú)
+        st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
         return
 
     st.subheader("Partidos disponibles")
@@ -442,10 +464,7 @@ def panel_partidos_disponibles(user):
     partidos = _partidos_visibles_para_jugador(jugador_id)
     if not partidos:
         st.info("No hay partidos disponibles para tu grupo por el momento.")
-        if st.button("⬅️ Volver"):
-            set_url_page("menu")
-            st.session_state["jugador_page"] = "menu"
-            st.rerun()
+        st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
         return
 
     for p in partidos:
@@ -543,29 +562,22 @@ def panel_partidos_disponibles(user):
                 st.write("_Vacía_")
 
     st.divider()
-    if st.button("⬅️ Volver"):
-        set_url_page("menu")
-        st.session_state["jugador_page"] = "menu"
-        st.rerun()
+    st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
 
 
 def panel_mis_estadisticas(user):
     _render_flash()
     try:
         import jugador_stats
-        # Renderiza la vista del dashboard (no hacemos return para poder dibujar nuestro "Volver")
         jugador_stats.panel_mis_estadisticas(user)
     except Exception as e:
         st.subheader("Mis estadísticas")
         st.error("No se pudo cargar el módulo de estadísticas (jugador_stats.py).")
         st.exception(e)
 
-    # ---- Botón Volver propio (siempre presente, falle o no el import) ----
     st.divider()
-    if st.button("⬅️ Volver", key="back_stats_global"):
-        set_url_page("menu")
-        st.session_state["jugador_page"] = "menu"
-        st.rerun()
+    # ÚNICO botón/Link de Volver (el anterior duplicado se elimina)
+    st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
 
 
 def panel_mi_perfil(user):
@@ -579,7 +591,7 @@ def panel_mi_perfil(user):
         if row is None:
             return None
         try:
-            return dict(row)
+            return dict(row)  # sqlite3.Row
         except Exception:
             cols = [d[0] for d in cur.description] if cur.description else []
             return {cols[i]: row[i] for i in range(len(cols))}
@@ -676,7 +688,5 @@ def panel_mi_perfil(user):
                     st.success("Contraseña actualizada.")
                     st.rerun()
 
-    if st.button("⬅️ Volver"):
-        set_url_page("menu")
-        st.session_state["jugador_page"] = "menu"
-        st.rerun()
+    st.divider()
+    st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
