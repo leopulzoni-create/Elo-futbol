@@ -80,6 +80,7 @@ def set_url_token(token: str):
 def clear_url_token():
     if "auth" in st.query_params:
         del st.query_params["auth"]
+
 # Navegación por URL (sección del panel jugador)
 def current_page_in_url(default: str = "menu") -> str:
     return st.query_params.get("page", default) or default
