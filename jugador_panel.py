@@ -8,7 +8,7 @@ import pytz
 
 # Deep-links
 from urllib.parse import urlencode
-from remember import set_url_page, current_token_in_url
+from remember import set_url_page, current_token_in_url, current_page_in_url
 
 DB_NAME = "elo_futbol.db"
 CUPO_PARTIDO = 10
@@ -396,13 +396,16 @@ def _page_url(page: str) -> str:
 
 
 def _link_button(label: str, page: str):
-    """Botón-link: navegación dura (recarga) con ?auth y ?page."""
+    """Botón-link: navegación con recarga (misma pestaña) y estilo limpio."""
     url = _page_url(page)
     st.markdown(
         f"""
         <a href="{url}" target="_self" style="text-decoration:none;">
           <div style="
-            display:inline-block;
+            display:inline-flex;
+            align-items:center;
+            gap:.5rem;
+            white-space:nowrap;
             padding:0.6rem 1rem;
             border:1px solid rgba(49,51,63,.2);
             border-radius:.5rem;
@@ -455,8 +458,7 @@ def panel_partidos_disponibles(user):
     jugador_id = user.get("jugador_id")
     if not jugador_id:
         st.warning("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule.")
-        # Volver como link (recarga y vuelve al menú)
-        st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
+        _link_button("⬅️ Volver", "menu")
         return
 
     st.subheader("Partidos disponibles")
@@ -464,7 +466,7 @@ def panel_partidos_disponibles(user):
     partidos = _partidos_visibles_para_jugador(jugador_id)
     if not partidos:
         st.info("No hay partidos disponibles para tu grupo por el momento.")
-        st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
+        _link_button("⬅️ Volver", "menu")
         return
 
     for p in partidos:
@@ -562,11 +564,13 @@ def panel_partidos_disponibles(user):
                 st.write("_Vacía_")
 
     st.divider()
-    st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
+    _link_button("⬅️ Volver", "menu")
 
 
 def panel_mis_estadisticas(user):
     _render_flash()
+    # Guardamos el estado previo para detectar si el módulo externo nos mandó a "menu"
+    prev_page = st.session_state.get("jugador_page")
     try:
         import jugador_stats
         jugador_stats.panel_mis_estadisticas(user)
@@ -575,9 +579,15 @@ def panel_mis_estadisticas(user):
         st.error("No se pudo cargar el módulo de estadísticas (jugador_stats.py).")
         st.exception(e)
 
+    # Si el módulo cambió el estado a "menu" pero la URL no lo refleja, la sincronizamos nosotros:
+    cur_page_state = st.session_state.get("jugador_page")
+    cur_page_url = current_page_in_url(default="menu")
+    if cur_page_state == "menu" and cur_page_url != "menu":
+        set_url_page("menu")
+        st.rerun()
+
     st.divider()
-    # ÚNICO botón/Link de Volver (el anterior duplicado se elimina)
-    st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
+    # NO agrego otro "Volver": queda el propio del módulo; evitamos duplicado visible.
 
 
 def panel_mi_perfil(user):
@@ -689,4 +699,4 @@ def panel_mi_perfil(user):
                     st.rerun()
 
     st.divider()
-    st.markdown(f'[⬅️ Volver]({_page_url("menu")})')
+    _link_button("⬅️ Volver", "menu")
