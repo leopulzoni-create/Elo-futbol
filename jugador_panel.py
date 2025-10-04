@@ -377,14 +377,12 @@ def _partidos_visibles_para_jugador(jugador_id: int):
 
 # ---------- UI helpers (logo + menú apilado) ----------
 def _hero_logo():
-    """Logo PNG blanco centrado, sin botón."""
+    """Logo centrado usando 3 columnas (robusto en Streamlit)."""
     logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
-    if logo_path.exists():
-        st.markdown("<div style='display:flex;justify-content:center;'>", unsafe_allow_html=True)
-        st.image(str(logo_path), use_container_width=False, width=220)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
+    left, center, right = st.columns([1, 2, 1])  # el del medio es más ancho
+    with center:
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width=False, width=220)
 
 
 def _menu_links_column():
