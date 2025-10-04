@@ -374,16 +374,21 @@ def _hero_logo():
         st.markdown(
             f"""
             <style>
-              /* Subimos el logo para acercarlo al borde superior */
-              #hero-topo {{ margin-top: 4px; }}
-              @media (min-width:768px){{ #hero-topo {{ margin-top: 8px; }} }}
+              #hero-wrap {{ position: relative; display:flex; justify-content:center; margin:0 0 6px 0; }}
+              #logout-slot {{
+                position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+                display: flex; align-items: center; justify-content: center;
+                width: 56px; height: 56px; /* caja clickeable cómoda */
+              }}
             </style>
-            <div id="hero-topo" style="display:flex;justify-content:center;margin:0 0 6px 0;">
+            <div id="hero-wrap">
+              <div id="logout-slot"></div>
               <img src="data:image/png;base64,{b64}" alt="Topo" style="width:220px;opacity:0.95;"/>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
 
 
 def _menu_links_column():

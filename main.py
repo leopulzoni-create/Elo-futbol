@@ -19,11 +19,8 @@ from pathlib import Path
 import base64
 
 # ---------------------------
-# UI: ajustes rápidos
+# UI: logo para pantalla de login
 # ---------------------------
-# Altura para bajar un poco el botón de logout sin generar “hueco” notorio
-LOGOUT_TOP_OFFSET_PX = 1  # probá 16/24/32
-
 def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
     """Logo centrado para la pantalla de login."""
     logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
@@ -56,14 +53,13 @@ if "user" not in st.session_state:
 col_title, col_btn = st.columns([0.9, 0.1])
 
 with col_title:
-    # Nada de títulos para mantener la portada limpia
+    # Sin títulos para mantener la portada limpia
     pass
 
 with col_btn:
     if "user" in st.session_state:
-        # Offset pequeño para que la puerta no quede pegada arriba
-        st.markdown(f"<div style='height:{LOGOUT_TOP_OFFSET_PX}px'></div>", unsafe_allow_html=True)
-        st.markdown("<div style='text-align:right;'>", unsafe_allow_html=True)
+        # Marcador donde se renderiza el botón y desde donde luego lo moveremos al slot del hero
+        st.markdown('<div id="logout-origin" style="text-align:right;"></div>', unsafe_allow_html=True)
         if st.button("🚪", key="btn_logout", help="Cerrar sesión"):
             tok = current_token_in_url()
             if tok:
@@ -74,7 +70,30 @@ with col_btn:
                 if k in ("user", "admin_page", "jugador_page", "flash"):
                     del st.session_state[k]
             st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+
+# Script: intenta mover la puerta al slot del hero (#logout-slot) cuando exista
+st.markdown("""
+<script>
+  (function(){
+    function tryMove(){
+      const slot = document.getElementById('logout-slot');
+      const origin = document.getElementById('logout-origin');
+      if(!slot || !origin) return false;
+      const originContainer = origin.parentElement; // contenedor de Streamlit donde están origin + botón
+      if(!originContainer) return false;
+      const btn = originContainer.querySelector('button[kind]');
+      if(!btn) return false;
+      // Mueve TODO el contenedor (incluye padding/márgenes coherentes)
+      slot.appendChild(originContainer);
+      return true;
+    }
+    let attempts = 0;
+    const iv = setInterval(function(){
+      if (tryMove() || attempts++ > 30) clearInterval(iv);
+    }, 120);
+  })();
+</script>
+""", unsafe_allow_html=True)
 
 # --- LOGIN ---
 if "user" not in st.session_state:
@@ -180,7 +199,6 @@ else:
         import jugador_panel  # módulo del panel jugador
 
         # Sin "Panel Jugador - ..." para mantener la portada minimal
-        # st.header(f"Panel Jugador - {user['username']}")  # ← eliminado
 
         # Router del panel jugador (no interfiere con admin_page)
         if "jugador_page" not in st.session_state:
