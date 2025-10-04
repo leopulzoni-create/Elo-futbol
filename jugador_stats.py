@@ -725,7 +725,6 @@ def panel_mis_estadisticas(user):
             for rrow in top_riv:
                 jug = rrow["jugados_vs"]; yo_w = rrow["yo_gane"]; yo_l = rrow["yo_perdi"]; emp = rrow["empates"]
                 st.write(f"- **{rrow['nombre']}** — vs: {jug} • balance (G-E-P): {yo_w}-{emp}-{yo_l}")
-            st.caption("Formato del balance: G-E-P = Ganados – Empatados – Perdidos.")
         if peor_rival:
             diff = int(peor_rival["yo_perdi"] - peor_rival["yo_gane"])
             st.warning(
