@@ -377,16 +377,23 @@ def _partidos_visibles_para_jugador(jugador_id: int):
 
 # ---------- UI helpers (logo + menú apilado) ----------
 def _hero_logo():
-    """Logo centrado usando 3 columnas (robusto en Streamlit)."""
+    """Logo PNG blanco centrado (robusto) usando HTML + flex."""
     logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
-    left, center, right = st.columns([1, 2, 1])  # el del medio es más ancho
-    with center:
-        if logo_path.exists():
-            st.image(str(logo_path), use_container_width=False, width=220)
+    if logo_path.exists():
+        import base64
+        b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        st.markdown(
+            f"""
+            <div style="display:flex;justify-content:center;margin:8px 0 18px 0;">
+              <img src="data:image/png;base64,{b64}" alt="Topo" style="width:220px;opacity:0.95;"/>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def _menu_links_column():
-    """3 botones iguales, apilados y centrados."""
+    """2 botones iguales, apilados y centrados (sin 'Ver mi perfil')."""
     st.markdown(
         """
         <style>
@@ -405,12 +412,13 @@ def _menu_links_column():
     )
 
     st.markdown('<div class="menu-col">', unsafe_allow_html=True)
+
     if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles", use_container_width=True):
         st.session_state["jugador_page"] = "partidos"; st.rerun()
+
     if st.button("Ver mis estadísticas 📊", key="btn_mis_stats", use_container_width=True):
         st.session_state["jugador_page"] = "stats"; st.rerun()
-    if st.button("Ver mi perfil 👤", key="btn_mi_perfil", use_container_width=True):
-        st.session_state["jugador_page"] = "perfil"; st.rerun()
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 

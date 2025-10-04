@@ -58,6 +58,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+  /* oculta el botón de 'ver a pantalla completa' que Streamlit agrega a imágenes */
+  button[title="View fullscreen"] { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
+
 # =============================
 # Encabezado minimal + Logout (condicional)
 # =============================
