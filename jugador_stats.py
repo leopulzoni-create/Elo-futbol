@@ -662,14 +662,17 @@ def panel_mis_estadisticas(user):
         opts = list(dict.fromkeys(opts))
         default_index = 0
 
+    # --- SELECTOR NUEVO: Expander + Radio ---
     st.markdown("### Temporada")
-    temporada = st.selectbox(
-        "Elegí el año (o Todas):",
-        options=opts, index=default_index, key=f"stats_temporada_sel_{jugador_id}",
-        help="Las estadísticas y medallas se calculan para la temporada seleccionada."
-    )
-
+    with st.expander("Elegí la temporada", expanded=False):
+        temporada = st.radio(
+            "Elegí el año (o Todas):",
+            options=opts,
+            index=default_index,
+            key=f"stats_temporada_radio_{jugador_id}",  # clave nueva
+        )
     st.markdown("---")
+
 
     # Datos base
     detalle, seq, w, e, l = _fetch_my_results(jugador_id, temporada)
