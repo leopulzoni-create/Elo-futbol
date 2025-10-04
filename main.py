@@ -4,7 +4,7 @@ import scheduler  # dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
 ensure_admin_user()
 
-# Persistencia de sesión vía token en URL (usa remember.py actualizado con st.query_params)
+# Persistencia de sesión vía token en URL (usa remember.py con st.query_params)
 from remember import (
     ensure_tables,
     validate_token,
@@ -15,11 +15,28 @@ from remember import (
     clear_url_token,
 )
 
-# =============================
-# Parámetros UI (puerta)
-# =============================
-# Altura para bajar el botón de logout y alinearlo con el borde superior del logo del panel jugador.
-LOGOUT_TOP_SPACER_PX = 88  # <- ajustá a gusto (p.ej. 72 / 88 / 96)
+from pathlib import Path
+import base64
+
+# ---------------------------
+# UI: ajustes rápidos
+# ---------------------------
+# Altura para bajar un poco el botón de logout sin generar “hueco” notorio
+LOGOUT_TOP_OFFSET_PX = 24  # probá 16/24/32
+
+def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
+    """Logo centrado para la pantalla de login."""
+    logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
+    if logo_path.exists():
+        b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        st.markdown(
+            f"""
+            <div style="display:flex;justify-content:center;margin:8px 0 18px 0;">
+              <img src="data:image/png;base64,{b64}" alt="Topo" style="width:{width_px}px;opacity:{opacity};"/>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 # ==================================================
 #  Autologin por token (persistencia de sesión)
@@ -37,15 +54,15 @@ if "user" not in st.session_state:
 # Encabezado minimal + Logout
 # =============================
 col_title, col_btn = st.columns([0.9, 0.1])
+
 with col_title:
-    # Sin título/subtítulo para respetar la estética nueva
-    st.markdown("&nbsp;", unsafe_allow_html=True)  # ocupa el layout sin mostrar texto
+    # Nada de títulos para mantener la portada limpia
+    pass
 
 with col_btn:
     if "user" in st.session_state:
-        # Espaciador vertical para bajar la "puerta" y alinearla con el logo
-        st.markdown(f"<div style='height:{LOGOUT_TOP_SPACER_PX}px'></div>", unsafe_allow_html=True)
-        # Botón compacto (solo ícono) alineado a la derecha
+        # Offset pequeño para que la puerta no quede pegada arriba
+        st.markdown(f"<div style='height:{LOGOUT_TOP_OFFSET_PX}px'></div>", unsafe_allow_html=True)
         st.markdown("<div style='text-align:right;'>", unsafe_allow_html=True)
         if st.button("🚪", key="btn_logout", help="Cerrar sesión"):
             tok = current_token_in_url()
@@ -61,6 +78,10 @@ with col_btn:
 
 # --- LOGIN ---
 if "user" not in st.session_state:
+    # Logo centrado arriba del form
+    _hero_logo_login(width_px=180)
+
+    # Formulario
     username = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
     remember_me = st.checkbox("Mantener sesión en este dispositivo", value=True)
@@ -109,30 +130,22 @@ else:
     # PANEL ADMIN
     # ==================================================
     if rol == "admin":
-        # Título minimal (si lo querés totalmente sin título, comentá la línea siguiente)
+        # Si querés ocultar totalmente, comentá esta línea
         st.header(f"Panel Administrador - {user['username']}")
 
-        # Guardamos qué página está activa
         if "admin_page" not in st.session_state:
             st.session_state.admin_page = None
 
         # --- MENÚ PRINCIPAL ---
         if st.session_state.admin_page is None:
             st.subheader("Selecciona una opción:")
-            if st.button("1️⃣ Gestión de jugadores"):
-                st.session_state.admin_page = "jugadores"; st.rerun()
-            if st.button("2️⃣ Gestión de canchas"):
-                st.session_state.admin_page = "canchas"; st.rerun()
-            if st.button("3️⃣ Gestión de partidos"):
-                st.session_state.admin_page = "crear_partido"; st.rerun()
-            if st.button("4️⃣ Generar equipos"):
-                st.session_state.admin_page = "generar_equipos"; st.rerun()
-            if st.button("5️⃣ Registrar resultado"):
-                st.session_state.admin_page = "registrar_resultado"; st.rerun()
-            if st.button("6️⃣ Historial"):
-                st.session_state.admin_page = "historial"; st.rerun()
-            if st.button("7️⃣ Administrar usuarios"):
-                st.session_state.admin_page = "usuarios"; st.rerun()
+            if st.button("1️⃣ Gestión de jugadores"): st.session_state.admin_page = "jugadores"; st.rerun()
+            if st.button("2️⃣ Gestión de canchas"):   st.session_state.admin_page = "canchas"; st.rerun()
+            if st.button("3️⃣ Gestión de partidos"):  st.session_state.admin_page = "crear_partido"; st.rerun()
+            if st.button("4️⃣ Generar equipos"):      st.session_state.admin_page = "generar_equipos"; st.rerun()
+            if st.button("5️⃣ Registrar resultado"):  st.session_state.admin_page = "registrar_resultado"; st.rerun()
+            if st.button("6️⃣ Historial"):            st.session_state.admin_page = "historial"; st.rerun()
+            if st.button("7️⃣ Administrar usuarios"): st.session_state.admin_page = "usuarios"; st.rerun()
             # ---- NUEVOS BOTONES ----
             if st.button("8️⃣ Temporadas (cambio y cierre) 🗓️", key="btn_admin_temporadas"):
                 st.session_state.admin_page = "temporadas"; st.rerun()
@@ -167,7 +180,7 @@ else:
         import jugador_panel  # módulo del panel jugador
 
         # Sin "Panel Jugador - ..." para mantener la portada minimal
-        # st.header(f"Panel Jugador - {user['username']}")  # ← ELIMINADO
+        # st.header(f"Panel Jugador - {user['username']}")  # ← eliminado
 
         # Router del panel jugador (no interfiere con admin_page)
         if "jugador_page" not in st.session_state:
