@@ -22,7 +22,7 @@ import base64
 # UI: ajustes rápidos
 # ---------------------------
 # Altura para bajar un poco el botón de logout sin generar “hueco” notorio
-LOGOUT_TOP_OFFSET_PX = 24  # probá 16/24/32
+LOGOUT_TOP_OFFSET_PX = 32  # probá 16/24/32
 
 def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
     """Logo centrado para la pantalla de login."""
