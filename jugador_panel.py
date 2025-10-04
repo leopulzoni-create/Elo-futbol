@@ -467,6 +467,9 @@ def panel_menu_jugador(user):
     if "jugador_page" not in st.session_state:
         st.session_state["jugador_page"] = "menu"
 
+    st.caption("🧪 jugador_panel.py build 2025-10-03 21:26")
+    st.write("DEBUG_menu_v1")
+
     _render_flash()
 
     username = user.get("username") or "jugador"
