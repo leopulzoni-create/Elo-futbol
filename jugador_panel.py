@@ -7,6 +7,7 @@ from datetime import date, datetime
 import pytz
 from pathlib import Path
 import base64
+from remember import current_token_in_url, revoke_token, clear_url_token
 
 DB_NAME = "elo_futbol.db"
 CUPO_PARTIDO = 10
@@ -33,6 +34,15 @@ def _push_flash(msg, level="info"):
     _ensure_flash_store()
     st.session_state["flash"].append((level, msg))
 
+def _logout():
+    tok = current_token_in_url()
+    if tok:
+        revoke_token(tok)
+        clear_url_token()
+    for k in list(st.session_state.keys()):
+        if k in ("user", "admin_page", "jugador_page", "flash"):
+            del st.session_state[k]
+    st.rerun()
 
 def _render_flash():
     _ensure_flash_store()
@@ -367,27 +377,20 @@ def _partidos_visibles_para_jugador(jugador_id: int):
 
 # ---------- UI helpers (logo + menú apilado) ----------
 def _hero_logo():
-    """Muestra el logo PNG blanco centrado (más arriba para acercarlo a la 'puerta')."""
+    """Logo centrado con la puerta alineada a la derecha en la misma fila."""
     logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
-    if logo_path.exists():
-        b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
-        st.markdown(
-            f"""
-            <style>
-              #hero-wrap {{ position: relative; display:flex; justify-content:center; margin:0 0 6px 0; }}
-              #logout-slot {{
-                position: absolute; right: 0; top: 50%; transform: translateY(-50%);
-                display: flex; align-items: center; justify-content: center;
-                width: 56px; height: 56px; /* caja clickeable cómoda */
-              }}
-            </style>
-            <div id="hero-wrap">
-              <div id="logout-slot"></div>
-              <img src="data:image/png;base64,{b64}" alt="Topo" style="width:220px;opacity:0.95;"/>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    c1, c2, c3 = st.columns([1, 1, 1])
+
+    with c2:
+        if logo_path.exists():
+            st.image(str(logo_path), use_container_width=False, width=220)
+
+    with c3:
+        # espaciador chico para centrar vertical un poco
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("🚪", key="logout_hero", help="Cerrar sesión"):
+            _logout()
+
 
 
 

@@ -4,7 +4,7 @@ import scheduler  # dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
 ensure_admin_user()
 
-# Persistencia de sesión vía token en URL (usa remember.py con st.query_params)
+# Persistencia de sesión vía token (remember.py)
 from remember import (
     ensure_tables,
     validate_token,
@@ -22,7 +22,6 @@ import base64
 # UI: logo para pantalla de login
 # ---------------------------
 def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
-    """Logo centrado para la pantalla de login."""
     logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
     if logo_path.exists():
         b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
@@ -36,7 +35,7 @@ def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
         )
 
 # ==================================================
-#  Autologin por token (persistencia de sesión)
+#  Autologin por token
 # ==================================================
 ensure_tables()
 if "user" not in st.session_state:
@@ -44,85 +43,62 @@ if "user" not in st.session_state:
     if url_token:
         user_from_token = validate_token(url_token)
         if user_from_token:
-            st.session_state.user = user_from_token  # dict normalizado
+            st.session_state.user = user_from_token
             st.rerun()
 
 # =============================
-# CSS global: ocultar anchors "cadenitas"
+# CSS global: ocultar “cadenitas” (anchors de títulos)
 # =============================
 st.markdown("""
 <style>
-  /* Oculta los iconos de anclaje de títulos (las cadenitas) */
-  a.st-anchored-link,
-  a[aria-label="Copy permalink to this section"],
-  a[aria-label="Link to this heading"],
-  .stHeading a { display: none !important; visibility: hidden !important; }
+  :where(h1,h2,h3,h4,h5,h6) a[href^="#"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
 </style>
 """, unsafe_allow_html=True)
 
 # =============================
-# Encabezado minimal + Logout
+# Encabezado minimal + Logout (condicional)
 # =============================
 col_title, col_btn = st.columns([0.9, 0.1])
 
 with col_title:
-    # Sin títulos para mantener la portada limpia
+    # portada limpia, sin títulos
     pass
 
 with col_btn:
+    show_global_logout = False
     if "user" in st.session_state:
-        # Marcador donde se renderiza el botón; luego lo movemos al slot del hero (#logout-slot)
-        st.markdown('<div id="logout-origin" style="text-align:right;"></div>', unsafe_allow_html=True)
+        user_tmp = st.session_state.get("user") or {}
+        rol_tmp = user_tmp.get("rol")
+        if rol_tmp is None:
+            rol_tmp = "admin" if str(user_tmp.get("is_admin")).lower() in ("1", "true", "t", "yes") else "jugador"
+            user_tmp["rol"] = rol_tmp
+            st.session_state.user = user_tmp
+
+        # Si estamos en el menú del jugador, NO dibujo la puerta acá
+        # (porque la dibuja el hero del jugador para alinearla con el logo)
+        if not (rol_tmp == "jugador" and st.session_state.get("jugador_page", "menu") == "menu"):
+            show_global_logout = True
+
+    if show_global_logout:
+        st.markdown("<div style='text-align:right;'>", unsafe_allow_html=True)
         if st.button("🚪", key="btn_logout", help="Cerrar sesión"):
             tok = current_token_in_url()
             if tok:
                 revoke_token(tok)
                 clear_url_token()
-            # Limpiar estados de sesión utilizados
             for k in list(st.session_state.keys()):
                 if k in ("user", "admin_page", "jugador_page", "flash"):
                     del st.session_state[k]
             st.rerun()
-
-# JS robusto: mueve la puerta al slot del hero cuando exista (y se vuelve a mover tras cada re-render)
-st.markdown("""
-<script>
-(function(){
-  function moveLogout(){
-    const slot = document.getElementById('logout-slot');
-    const origin = document.getElementById('logout-origin');
-    if (!slot || !origin) return false;
-    const originContainer = origin.parentElement; // contenedor real que Streamlit renderiza
-    if (!originContainer) return false;
-    const btn = originContainer.querySelector('button'); // el botón 🚪
-    if (!btn) return false;
-    if (!slot.contains(originContainer)) {
-      slot.appendChild(originContainer); // mueve TODO el contenedor (mantiene estilos)
-    }
-    return true;
-  }
-
-  // Intento inmediato
-  if (!moveLogout()){
-    // Observa cambios del DOM (Streamlit re-render) y reintenta
-    const obs = new MutationObserver(() => moveLogout());
-    obs.observe(document.body, { childList:true, subtree:true });
-    // Reintentos por tiempo por si el hero tarda en montarse
-    let tries = 0;
-    const iv = setInterval(() => {
-      if (moveLogout() || ++tries > 40) clearInterval(iv);
-    }, 120);
-  }
-})();
-</script>
-""", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # --- LOGIN ---
 if "user" not in st.session_state:
-    # Logo centrado arriba del form
     _hero_logo_login(width_px=180)
 
-    # Formulario
     username = st.text_input("Usuario")
     password = st.text_input("Contraseña", type="password")
     remember_me = st.checkbox("Mantener sesión en este dispositivo", value=True)
@@ -130,7 +106,6 @@ if "user" not in st.session_state:
     if st.button("Ingresar"):
         user = verify_user(username, password)
         if user:
-            # Normalizar Row -> dict (por si acaso)
             try:
                 if hasattr(user, "keys"):
                     user = {k: user[k] for k in user.keys()}
@@ -139,11 +114,9 @@ if "user" not in st.session_state:
 
             st.session_state.user = user
 
-            # Si se tilda "Mantener sesión", emitimos token y lo guardamos en el URL (?auth=...)
             if remember_me:
                 user_id = user.get("id")
                 if not user_id:
-                    # Buscar id por username si verify_user no lo retornó
                     from db import get_connection
                     with get_connection() as conn:
                         cur = conn.cursor()
@@ -162,22 +135,18 @@ else:
     user = st.session_state.get("user") or {}
     rol = user.get("rol")
     if rol is None:
-        # deduce rol por is_admin si faltara
         rol = "admin" if str(user.get("is_admin")).lower() in ("1", "true", "t", "yes") else "jugador"
         user["rol"] = rol
-        st.session_state.user = user  # guarda la versión normalizada
+        st.session_state.user = user
 
     # ==================================================
     # PANEL ADMIN
     # ==================================================
     if rol == "admin":
-        # Si querés ocultar totalmente, comentá esta línea
         st.header(f"Panel Administrador - {user['username']}")
-
         if "admin_page" not in st.session_state:
             st.session_state.admin_page = None
 
-        # --- MENÚ PRINCIPAL ---
         if st.session_state.admin_page is None:
             st.subheader("Selecciona una opción:")
             if st.button("1️⃣ Gestión de jugadores"): st.session_state.admin_page = "jugadores"; st.rerun()
@@ -187,13 +156,11 @@ else:
             if st.button("5️⃣ Registrar resultado"):  st.session_state.admin_page = "registrar_resultado"; st.rerun()
             if st.button("6️⃣ Historial"):            st.session_state.admin_page = "historial"; st.rerun()
             if st.button("7️⃣ Administrar usuarios"): st.session_state.admin_page = "usuarios"; st.rerun()
-            # ---- NUEVOS BOTONES ----
             if st.button("8️⃣ Temporadas (cambio y cierre) 🗓️", key="btn_admin_temporadas"):
                 st.session_state.admin_page = "temporadas"; st.rerun()
             if st.button("9️⃣ Estadísticas globales 📊", key="btn_admin_global_stats"):
                 st.session_state.admin_page = "estadisticas_globales"; st.rerun()
 
-        # --- CARGA DE MÓDULOS SEGÚN BOTÓN ---
         elif st.session_state.admin_page == "jugadores":
             import jugadores; jugadores.panel_gestion()
         elif st.session_state.admin_page == "canchas":
@@ -208,7 +175,6 @@ else:
             import historial; historial.panel_historial()
         elif st.session_state.admin_page == "usuarios":
             import usuarios; usuarios.panel_gestion()
-        # ---- NUEVAS RUTAS ----
         elif st.session_state.admin_page == "temporadas":
             import admin_temporadas; admin_temporadas.panel_temporadas()
         elif st.session_state.admin_page == "estadisticas_globales":
@@ -218,9 +184,7 @@ else:
     # PANEL JUGADOR
     # ==================================================
     elif rol == "jugador":
-        import jugador_panel  # módulo del panel jugador
-
-        # Router del panel jugador
+        import jugador_panel
         if "jugador_page" not in st.session_state:
             st.session_state.jugador_page = "menu"
 
