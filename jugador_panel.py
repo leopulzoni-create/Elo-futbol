@@ -377,25 +377,28 @@ def _partidos_visibles_para_jugador(jugador_id: int):
 
 # ---------- UI helpers (logo + menú apilado) ----------
 def _hero_logo():
-    """Logo centrado y puerta alineada a la derecha, misma fila."""
+    """Logo centrado y puerta al extremo derecho (misma fila)."""
     logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
 
-    # Ajustá estos ratios para empujar más a la derecha la puerta sin tocar el centrado del logo.
-    # Cuanto más grande sea el último número, más a la derecha quedará la puerta.
-    c_left, c_center, c_right = st.columns([1, 1, 4])  # <-- probá [1,1,5] o [1,1,6] si la querés aún más a la derecha
+    # Columna grande para logo + columna angosta para la puerta
+    col_logo, col_btn = st.columns([12, 1])  # si la querés aún más a la derecha: [20,1] o [30,1]
 
-    with c_center:
+    with col_logo:
         if logo_path.exists():
+            # centrado real dentro de la columna ancha
+            st.markdown("<div style='display:flex;justify-content:center;'>", unsafe_allow_html=True)
             st.image(str(logo_path), use_container_width=False, width=220)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    with c_right:
-        # pequeño espaciador para centrarla verticalmente con el logo
+    with col_btn:
+        # pequeño ajuste vertical para acompañar el centro del logo
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        # alineación a la derecha dentro de su columna
-        st.markdown("<div style='text-align:right;'>", unsafe_allow_html=True)
+        # alinear el botón al borde derecho del contenedor principal
+        st.markdown("<div style='display:flex;justify-content:flex-end;'>", unsafe_allow_html=True)
         if st.button("🚪", key="logout_hero", help="Cerrar sesión"):
             _logout()
         st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 def _menu_links_column():
