@@ -48,6 +48,19 @@ if "user" not in st.session_state:
             st.rerun()
 
 # =============================
+# CSS global: ocultar anchors "cadenitas"
+# =============================
+st.markdown("""
+<style>
+  /* Oculta los iconos de anclaje de títulos (las cadenitas) */
+  a.st-anchored-link,
+  a[aria-label="Copy permalink to this section"],
+  a[aria-label="Link to this heading"],
+  .stHeading a { display: none !important; visibility: hidden !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# =============================
 # Encabezado minimal + Logout
 # =============================
 col_title, col_btn = st.columns([0.9, 0.1])
@@ -58,7 +71,7 @@ with col_title:
 
 with col_btn:
     if "user" in st.session_state:
-        # Marcador donde se renderiza el botón y desde donde luego lo moveremos al slot del hero
+        # Marcador donde se renderiza el botón; luego lo movemos al slot del hero (#logout-slot)
         st.markdown('<div id="logout-origin" style="text-align:right;"></div>', unsafe_allow_html=True)
         if st.button("🚪", key="btn_logout", help="Cerrar sesión"):
             tok = current_token_in_url()
@@ -71,27 +84,36 @@ with col_btn:
                     del st.session_state[k]
             st.rerun()
 
-# Script: intenta mover la puerta al slot del hero (#logout-slot) cuando exista
+# JS robusto: mueve la puerta al slot del hero cuando exista (y se vuelve a mover tras cada re-render)
 st.markdown("""
 <script>
-  (function(){
-    function tryMove(){
-      const slot = document.getElementById('logout-slot');
-      const origin = document.getElementById('logout-origin');
-      if(!slot || !origin) return false;
-      const originContainer = origin.parentElement; // contenedor de Streamlit donde están origin + botón
-      if(!originContainer) return false;
-      const btn = originContainer.querySelector('button[kind]');
-      if(!btn) return false;
-      // Mueve TODO el contenedor (incluye padding/márgenes coherentes)
-      slot.appendChild(originContainer);
-      return true;
+(function(){
+  function moveLogout(){
+    const slot = document.getElementById('logout-slot');
+    const origin = document.getElementById('logout-origin');
+    if (!slot || !origin) return false;
+    const originContainer = origin.parentElement; // contenedor real que Streamlit renderiza
+    if (!originContainer) return false;
+    const btn = originContainer.querySelector('button'); // el botón 🚪
+    if (!btn) return false;
+    if (!slot.contains(originContainer)) {
+      slot.appendChild(originContainer); // mueve TODO el contenedor (mantiene estilos)
     }
-    let attempts = 0;
-    const iv = setInterval(function(){
-      if (tryMove() || attempts++ > 30) clearInterval(iv);
+    return true;
+  }
+
+  // Intento inmediato
+  if (!moveLogout()){
+    // Observa cambios del DOM (Streamlit re-render) y reintenta
+    const obs = new MutationObserver(() => moveLogout());
+    obs.observe(document.body, { childList:true, subtree:true });
+    // Reintentos por tiempo por si el hero tarda en montarse
+    let tries = 0;
+    const iv = setInterval(() => {
+      if (moveLogout() || ++tries > 40) clearInterval(iv);
     }, 120);
-  })();
+  }
+})();
 </script>
 """, unsafe_allow_html=True)
 
@@ -198,9 +220,7 @@ else:
     elif rol == "jugador":
         import jugador_panel  # módulo del panel jugador
 
-        # Sin "Panel Jugador - ..." para mantener la portada minimal
-
-        # Router del panel jugador (no interfiere con admin_page)
+        # Router del panel jugador
         if "jugador_page" not in st.session_state:
             st.session_state.jugador_page = "menu"
 
