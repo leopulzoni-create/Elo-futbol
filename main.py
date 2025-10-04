@@ -68,32 +68,42 @@ with col_title:
     pass
 
 with col_btn:
-    show_global_logout = False
     if "user" in st.session_state:
-        user_tmp = st.session_state.get("user") or {}
-        rol_tmp = user_tmp.get("rol")
-        if rol_tmp is None:
-            rol_tmp = "admin" if str(user_tmp.get("is_admin")).lower() in ("1", "true", "t", "yes") else "jugador"
-            user_tmp["rol"] = rol_tmp
-            st.session_state.user = user_tmp
+        user = st.session_state.get("user") or {}
+        # Botón de menú ⋮ con Popover (si tu versión de Streamlit lo soporta)
+        if hasattr(st, "popover"):
+            with st.popover("⋮"):
+                if st.button("Cerrar sesión", key="logout_from_menu"):
+                    tok = current_token_in_url()
+                    if tok:
+                        revoke_token(tok)
+                        clear_url_token()
+                    for k in list(st.session_state.keys()):
+                        if k in ("user", "admin_page", "jugador_page", "flash"):
+                            del st.session_state[k]
+                    st.rerun()
+                # Opcionales:
+                if user.get("rol") == "jugador":
+                    if st.button("Mi perfil", key="menu_perfil"):
+                        st.session_state["jugador_page"] = "perfil"
+                        st.rerun()
+        else:
+            # Fallback para versiones sin st.popover: un expander con el mismo contenido
+            with st.expander("⋮", expanded=False):
+                if st.button("Cerrar sesión", key="logout_from_menu_fallback"):
+                    tok = current_token_in_url()
+                    if tok:
+                        revoke_token(tok)
+                        clear_url_token()
+                    for k in list(st.session_state.keys()):
+                        if k in ("user", "admin_page", "jugador_page", "flash"):
+                            del st.session_state[k]
+                    st.rerun()
+                if user.get("rol") == "jugador":
+                    if st.button("Mi perfil", key="menu_perfil_fallback"):
+                        st.session_state["jugador_page"] = "perfil"
+                        st.rerun()
 
-        # Si estamos en el menú del jugador, NO dibujo la puerta acá
-        # (porque la dibuja el hero del jugador para alinearla con el logo)
-        if not (rol_tmp == "jugador" and st.session_state.get("jugador_page", "menu") == "menu"):
-            show_global_logout = True
-
-    if show_global_logout:
-        st.markdown("<div style='text-align:right;'>", unsafe_allow_html=True)
-        if st.button("🚪", key="btn_logout", help="Cerrar sesión"):
-            tok = current_token_in_url()
-            if tok:
-                revoke_token(tok)
-                clear_url_token()
-            for k in list(st.session_state.keys()):
-                if k in ("user", "admin_page", "jugador_page", "flash"):
-                    del st.session_state[k]
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
 
 # --- LOGIN ---
 if "user" not in st.session_state:

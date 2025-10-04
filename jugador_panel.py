@@ -377,27 +377,13 @@ def _partidos_visibles_para_jugador(jugador_id: int):
 
 # ---------- UI helpers (logo + menú apilado) ----------
 def _hero_logo():
-    """Logo centrado y puerta al extremo derecho (misma fila)."""
+    """Logo PNG blanco centrado, sin botón."""
     logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
-
-    # Columna grande para logo + columna angosta para la puerta
-    col_logo, col_btn = st.columns([12, 1])  # si la querés aún más a la derecha: [20,1] o [30,1]
-
-    with col_logo:
-        if logo_path.exists():
-            # centrado real dentro de la columna ancha
-            st.markdown("<div style='display:flex;justify-content:center;'>", unsafe_allow_html=True)
-            st.image(str(logo_path), use_container_width=False, width=220)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with col_btn:
-        # pequeño ajuste vertical para acompañar el centro del logo
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        # alinear el botón al borde derecho del contenedor principal
-        st.markdown("<div style='display:flex;justify-content:flex-end;'>", unsafe_allow_html=True)
-        if st.button("🚪", key="logout_hero", help="Cerrar sesión"):
-            _logout()
+    if logo_path.exists():
+        st.markdown("<div style='display:flex;justify-content:center;'>", unsafe_allow_html=True)
+        st.image(str(logo_path), use_container_width=False, width=220)
         st.markdown("</div>", unsafe_allow_html=True)
+
 
 
 
