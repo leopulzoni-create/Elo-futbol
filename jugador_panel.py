@@ -208,7 +208,7 @@ def _reset_equipos(partido_id):
         conn.commit()
 
 
-# ---------- Renderer de equipos con camisetas ----------
+# ---------- Equipos UI ----------
 def _render_equipos(partido_id, inscritos):
     def _eq_num(x):
         try:
@@ -367,12 +367,17 @@ def _partidos_visibles_para_jugador(jugador_id: int):
 
 # ---------- UI helpers (logo + menú apilado) ----------
 def _hero_logo():
-    """Muestra el logo PNG blanco centrado."""
+    """Muestra el logo PNG blanco centrado (más arriba para acercarlo a la 'puerta')."""
     logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
     if logo_path.exists():
         b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
         st.markdown(
             f"""
+            <style>
+              /* Subimos el logo para acercarlo al borde superior */
+              #hero-topo {{ margin-top: 4px; }}
+              @media (min-width:768px){{ #hero-topo {{ margin-top: 8px; }} }}
+            </style>
             <div id="hero-topo" style="display:flex;justify-content:center;margin:0 0 6px 0;">
               <img src="data:image/png;base64,{b64}" alt="Topo" style="width:220px;opacity:0.95;"/>
             </div>
@@ -386,16 +391,6 @@ def _menu_links_column():
     st.markdown(
         """
         <style>
-          /* Ocultar título y header superiores (primero h1 y primero h2) */
-          div.block-container h1:first-of-type { display: none; }
-          div.block-container h2:first-of-type { display: none; }
-
-          /* Alinear visual: bajar un toque el inicio del hero para coincidir con la 'puerta' */
-          #hero-topo { margin-top: 24px; }
-          @media (min-width: 768px){
-            #hero-topo { margin-top: 32px; }  /* ajustá 24/32/40 según tu botón */
-          }
-
           .menu-col { max-width: 420px; margin: 0 auto; }
           .menu-col .stButton>button{
             width:100%;
@@ -411,16 +406,12 @@ def _menu_links_column():
     )
 
     st.markdown('<div class="menu-col">', unsafe_allow_html=True)
-
     if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles", use_container_width=True):
         st.session_state["jugador_page"] = "partidos"; st.rerun()
-
     if st.button("Ver mis estadísticas 📊", key="btn_mis_stats", use_container_width=True):
         st.session_state["jugador_page"] = "stats"; st.rerun()
-
     if st.button("Ver mi perfil 👤", key="btn_mi_perfil", use_container_width=True):
         st.session_state["jugador_page"] = "perfil"; st.rerun()
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -448,7 +439,6 @@ def panel_menu_jugador(user):
             nombre_vinculado = r["nombre"] if r else None
 
     _hero_logo()
-    # Bienvenida propia (no usa st.header/st.subheader para no interferir con el hide)
     st.markdown(
         f"<h1 style='text-align:center;margin:8px 0 18px 0;'>Bienvenido, {nombre_vinculado or username} 👋</h1>",
         unsafe_allow_html=True,

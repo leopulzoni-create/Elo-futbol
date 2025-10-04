@@ -1,9 +1,8 @@
 import streamlit as st
 from auth import verify_user
-import scheduler  # ⬅️ NUEVO: dispara materializaciones "lazy"
+import scheduler  # dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
 ensure_admin_user()
-
 
 # Persistencia de sesión vía token en URL (usa remember.py actualizado con st.query_params)
 from remember import (
@@ -16,6 +15,12 @@ from remember import (
     clear_url_token,
 )
 
+# =============================
+# Parámetros UI (puerta)
+# =============================
+# Altura para bajar el botón de logout y alinearlo con el borde superior del logo del panel jugador.
+LOGOUT_TOP_SPACER_PX = 88  # <- ajustá a gusto (p.ej. 72 / 88 / 96)
+
 # ==================================================
 #  Autologin por token (persistencia de sesión)
 # ==================================================
@@ -25,17 +30,21 @@ if "user" not in st.session_state:
     if url_token:
         user_from_token = validate_token(url_token)
         if user_from_token:
-            st.session_state.user = user_from_token  # dict normalizado desde remember.py
+            st.session_state.user = user_from_token  # dict normalizado
             st.rerun()
 
 # =============================
-# Encabezado: Título + Logout
+# Encabezado minimal + Logout
 # =============================
 col_title, col_btn = st.columns([0.9, 0.1])
 with col_title:
-    st.title("Topo Partidos ⚽")
+    # Sin título/subtítulo para respetar la estética nueva
+    st.markdown("&nbsp;", unsafe_allow_html=True)  # ocupa el layout sin mostrar texto
+
 with col_btn:
     if "user" in st.session_state:
+        # Espaciador vertical para bajar la "puerta" y alinearla con el logo
+        st.markdown(f"<div style='height:{LOGOUT_TOP_SPACER_PX}px'></div>", unsafe_allow_html=True)
         # Botón compacto (solo ícono) alineado a la derecha
         st.markdown("<div style='text-align:right;'>", unsafe_allow_html=True)
         if st.button("🚪", key="btn_logout", help="Cerrar sesión"):
@@ -73,8 +82,8 @@ if "user" not in st.session_state:
                 user_id = user.get("id")
                 if not user_id:
                     # Buscar id por username si verify_user no lo retornó
-                    from db import get_connection      # ← NUEVO
-                    with get_connection() as conn:     # ← MODIFICADO
+                    from db import get_connection
+                    with get_connection() as conn:
                         cur = conn.cursor()
                         cur.execute("SELECT id FROM usuarios WHERE username = ?", (user["username"],))
                         row = cur.fetchone()
@@ -96,11 +105,11 @@ else:
         user["rol"] = rol
         st.session_state.user = user  # guarda la versión normalizada
 
-
     # ==================================================
     # PANEL ADMIN
     # ==================================================
     if rol == "admin":
+        # Título minimal (si lo querés totalmente sin título, comentá la línea siguiente)
         st.header(f"Panel Administrador - {user['username']}")
 
         # Guardamos qué página está activa
@@ -111,70 +120,54 @@ else:
         if st.session_state.admin_page is None:
             st.subheader("Selecciona una opción:")
             if st.button("1️⃣ Gestión de jugadores"):
-                st.session_state.admin_page = "jugadores"
-                st.rerun()
+                st.session_state.admin_page = "jugadores"; st.rerun()
             if st.button("2️⃣ Gestión de canchas"):
-                st.session_state.admin_page = "canchas"
-                st.rerun()
+                st.session_state.admin_page = "canchas"; st.rerun()
             if st.button("3️⃣ Gestión de partidos"):
-                st.session_state.admin_page = "crear_partido"
-                st.rerun()
+                st.session_state.admin_page = "crear_partido"; st.rerun()
             if st.button("4️⃣ Generar equipos"):
-                st.session_state.admin_page = "generar_equipos"
-                st.rerun()
+                st.session_state.admin_page = "generar_equipos"; st.rerun()
             if st.button("5️⃣ Registrar resultado"):
-                st.session_state.admin_page = "registrar_resultado"
-                st.rerun()
+                st.session_state.admin_page = "registrar_resultado"; st.rerun()
             if st.button("6️⃣ Historial"):
-                st.session_state.admin_page = "historial"
-                st.rerun()
-            if st.button("7️⃣ Administrar usuarios"):  # ← EXISTENTE
-                st.session_state.admin_page = "usuarios"
-                st.rerun()
+                st.session_state.admin_page = "historial"; st.rerun()
+            if st.button("7️⃣ Administrar usuarios"):
+                st.session_state.admin_page = "usuarios"; st.rerun()
             # ---- NUEVOS BOTONES ----
             if st.button("8️⃣ Temporadas (cambio y cierre) 🗓️", key="btn_admin_temporadas"):
-                st.session_state.admin_page = "temporadas"
-                st.rerun()
+                st.session_state.admin_page = "temporadas"; st.rerun()
             if st.button("9️⃣ Estadísticas globales 📊", key="btn_admin_global_stats"):
-                st.session_state.admin_page = "estadisticas_globales"
-                st.rerun()
+                st.session_state.admin_page = "estadisticas_globales"; st.rerun()
 
         # --- CARGA DE MÓDULOS SEGÚN BOTÓN ---
         elif st.session_state.admin_page == "jugadores":
-            import jugadores
-            jugadores.panel_gestion()
+            import jugadores; jugadores.panel_gestion()
         elif st.session_state.admin_page == "canchas":
-            import canchas
-            canchas.panel_canchas()
+            import canchas; canchas.panel_canchas()
         elif st.session_state.admin_page == "crear_partido":
-            import partidos
-            partidos.panel_creacion()
+            import partidos; partidos.panel_creacion()
         elif st.session_state.admin_page == "generar_equipos":
-            import equipos
-            equipos.panel_generacion()
+            import equipos; equipos.panel_generacion()
         elif st.session_state.admin_page == "registrar_resultado":
-            import cargaresultados
-            cargaresultados.panel_resultados()
+            import cargaresultados; cargaresultados.panel_resultados()
         elif st.session_state.admin_page == "historial":
-            import historial
-            historial.panel_historial()
+            import historial; historial.panel_historial()
         elif st.session_state.admin_page == "usuarios":
-            import usuarios
-            usuarios.panel_gestion()
+            import usuarios; usuarios.panel_gestion()
         # ---- NUEVAS RUTAS ----
         elif st.session_state.admin_page == "temporadas":
-            import admin_temporadas
-            admin_temporadas.panel_temporadas()
+            import admin_temporadas; admin_temporadas.panel_temporadas()
         elif st.session_state.admin_page == "estadisticas_globales":
-            import admin_stats
-            admin_stats.panel_estadisticas_globales()
+            import admin_stats; admin_stats.panel_estadisticas_globales()
 
     # ==================================================
     # PANEL JUGADOR
     # ==================================================
     elif rol == "jugador":
-        import jugador_panel  # ← módulo del panel jugador
-        st.header(f"Panel Jugador - {user['username']}")
+        import jugador_panel  # módulo del panel jugador
+
+        # Sin "Panel Jugador - ..." para mantener la portada minimal
+        # st.header(f"Panel Jugador - {user['username']}")  # ← ELIMINADO
 
         # Router del panel jugador (no interfiere con admin_page)
         if "jugador_page" not in st.session_state:
@@ -186,8 +179,7 @@ else:
             jugador_panel.panel_partidos_disponibles(user)
         elif st.session_state.jugador_page == "stats":
             jugador_panel.panel_mis_estadisticas(user)
-        elif st.session_state.jugador_page == "perfil":          # ← NUEVO
-            jugador_panel.panel_mi_perfil(user)                  # ← NUEVO
+        elif st.session_state.jugador_page == "perfil":
+            jugador_panel.panel_mi_perfil(user)
         else:
-            st.session_state.jugador_page = "menu"
-            st.rerun()
+            st.session_state.jugador_page = "menu"; st.rerun()
