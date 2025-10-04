@@ -1,10 +1,12 @@
-from db import get_connection
 # jugador_panel.py
+from db import get_connection
 import streamlit as st
 import sqlite3
 import scheduler
 from datetime import date, datetime
 import pytz
+from pathlib import Path
+import base64
 
 DB_NAME = "elo_futbol.db"
 CUPO_PARTIDO = 10
@@ -405,6 +407,54 @@ def _partidos_visibles_para_jugador(jugador_id: int):
         return out
 
 
+# ---------- UI helpers (logo + menú apilado) ----------
+def _hero_logo():
+    """Muestra el logo PNG blanco centrado, suavemente integrado al fondo."""
+    logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
+    if logo_path.exists():
+        b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        st.markdown(
+            f"""
+            <div style="display:flex;justify-content:center;margin:12px 0 6px 0;">
+              <img src="data:image/png;base64,{b64}" alt="Topo" style="width:220px;opacity:0.95;"/>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _menu_links_column():
+    """3 botones iguales, apilados y centrados, sin sobrecargar la UI."""
+    st.markdown(
+        """
+        <style>
+          .menu-col { max-width: 420px; margin: 0 auto; }
+          .menu-col .stButton>button{
+            width:100%;
+            height:56px;
+            border-radius:14px;
+            font-weight:800;
+            font-size:18px;
+            margin:8px 0;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="menu-col">', unsafe_allow_html=True)
+
+    if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles", use_container_width=True):
+        st.session_state["jugador_page"] = "partidos"; st.rerun()
+
+    if st.button("Ver mis estadísticas 📊", key="btn_mis_stats", use_container_width=True):
+        st.session_state["jugador_page"] = "stats"; st.rerun()
+
+    if st.button("Ver mi perfil 👤", key="btn_mi_perfil", use_container_width=True):
+        st.session_state["jugador_page"] = "perfil"; st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 # ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
 def panel_menu_jugador(user):
     # Disparo LAZY: materializar programaciones vencidas al entrar
@@ -431,18 +481,15 @@ def panel_menu_jugador(user):
             r = _row_to_dict(cur.fetchone())
             nombre_vinculado = r["nombre"] if r else None
 
-    st.header(f"Bienvenido, {nombre_vinculado or username} 👋")
+    # --- HERO + saludo centrado ---
+    _hero_logo()
+    st.markdown(
+        f"<h1 style='text-align:center;margin:8px 0 18px 0;'>Bienvenido, {nombre_vinculado or username} 👋</h1>",
+        unsafe_allow_html=True,
+    )
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles"):
-            st.session_state["jugador_page"] = "partidos"; st.rerun()
-    with c2:
-        if st.button("Ver mis estadísticas 📊", key="btn_mis_stats"):
-            st.session_state["jugador_page"] = "stats"; st.rerun()
-    with c3:
-        if st.button("Ver mi perfil 👤", key="btn_mi_perfil"):
-            st.session_state["jugador_page"] = "perfil"; st.rerun()
+    # --- Menú apilado (3 botones iguales) ---
+    _menu_links_column()
 
 
 def panel_partidos_disponibles(user):
