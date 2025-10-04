@@ -550,7 +550,9 @@ def _rank_most_improved(temporada: str | None, min_pj: int = 15, top: int = 3):
         )
         candidatos = [r["jugador_id"] for r in _fetchall_dicts(cur)]
 
-        results = []
+    results = []
+    with _get_conn() as conn:
+        cur = conn.cursor()
         for jid in candidatos:
             cur.execute(
                 f"""
@@ -576,8 +578,8 @@ def _rank_most_improved(temporada: str | None, min_pj: int = 15, top: int = 3):
             nr = _fetchone_dict(cur) or {"nombre":"?"}
             results.append({"jugador_id": jid, "nombre": nr.get("nombre") or "?", "delta": delta})
 
-        results.sort(key=lambda x: (x["delta"], x["nombre"]), reverse=True)
-        return results[:top]
+    results.sort(key=lambda x: (x["delta"], x["nombre"]), reverse=True)
+    return results[:top]
 
 # ======================
 # Cabecera visual (opción A)
@@ -673,7 +675,6 @@ def panel_mis_estadisticas(user):
         )
     st.markdown("---")
 
-
     # Datos base
     detalle, seq, w, e, l = _fetch_my_results(jugador_id, temporada)
 
@@ -723,8 +724,8 @@ def panel_mis_estadisticas(user):
         else:
             for rrow in top_riv:
                 jug = rrow["jugados_vs"]; yo_w = rrow["yo_gane"]; yo_l = rrow["yo_perdi"]; emp = rrow["empates"]
-                st.write(f"- **{rrow['nombre']}** — vs: {jug} • balance: {yo_w}-{emp}-{yo_l}")
-
+                st.write(f"- **{rrow['nombre']}** — vs: {jug} • balance (G-E-P): {yo_w}-{emp}-{yo_l}")
+            st.caption("Formato del balance: G-E-P = Ganados – Empatados – Perdidos.")
         if peor_rival:
             diff = int(peor_rival["yo_perdi"] - peor_rival["yo_gane"])
             st.warning(
@@ -832,6 +833,9 @@ def panel_mis_estadisticas(user):
     def _medal_icon(place: int) -> str:
         return "🥇" if place == 1 else ("🥈" if place == 2 else "🥉")
 
+    def _medal_name(place: int) -> str:
+        return "Oro" if place == 1 else ("Plata" if place == 2 else "Bronce")
+
     CAT_LABEL = {
         "most_matches": "Más partidos",
         "best_points": "Mejor rendimiento 3/1/0",
@@ -877,7 +881,7 @@ def panel_mis_estadisticas(user):
                                 extra = f" — con {nr['nombre']}"
                 except Exception:
                     pass
-            st.success(f"{_medal_icon(place)} {label} ({season_val}){extra}")
+            st.success(f"{_medal_icon(place)} Medalla de {_medal_name(place)} — {label} ({season_val}){extra}")
             showed_any = True
 
     if not showed_any:
@@ -895,7 +899,7 @@ def panel_mis_estadisticas(user):
                 rows = pods_live[cat]
                 pos = next((i+1 for i, r in enumerate(rows) if r.get("jugador_id") == jugador_id), None)
                 if pos:
-                    st.info(f"{_medal_icon(pos)} {CAT_LABEL[cat]} (provisional, {temporada})")
+                    st.info(f"{_medal_icon(pos)} Medalla de {_medal_name(pos)} — {CAT_LABEL[cat]} (provisional, {temporada})")
                     provisional_any = True
             rows = pods_live["best_duo"]
             pos = None; partner_name = None
@@ -905,7 +909,7 @@ def panel_mis_estadisticas(user):
                     partner_name = r["nombre2"] if r.get("j1") == jugador_id else r.get("nombre1")
                     break
             if pos:
-                st.info(f"{_medal_icon(pos)} {CAT_LABEL['best_duo']} (provisional, {temporada}) — con {partner_name}")
+                st.info(f"{_medal_icon(pos)} Medalla de {_medal_name(pos)} — {CAT_LABEL['best_duo']} (provisional, {temporada}) — con {partner_name}")
                 provisional_any = True
 
             if not provisional_any:
