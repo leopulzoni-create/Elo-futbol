@@ -480,9 +480,12 @@ def panel_menu_jugador(user):
 
         for p in proximos:
             fecha = _format_fecha_ddmmyyyy(p["fecha"])
+            dia_es = _weekday_es(p["fecha"])  # ← día en español
             hora_lbl = time_label_from_int(p["hora"])
             cancha_name = _cancha_label(p["cancha_id"])
-            titulo = f"{fecha} • {hora_lbl} hs • {cancha_name}"
+
+            # Ejemplo: Martes 07/10/2025 • 19:00 hs • Espíritu Potrero (Gualeguaychú 2059)
+            titulo = f"{dia_es.capitalize()} {fecha} • {hora_lbl} hs • {cancha_name}"
 
             # Detectar color de camiseta
             camiseta = (p.get("camiseta") or "").strip().lower()
@@ -513,6 +516,7 @@ def panel_menu_jugador(user):
     else:
         st.markdown("---")
         st.markdown("_No tenés partidos próximos confirmados._")
+
 
 
 def panel_partidos_disponibles(user):
