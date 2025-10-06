@@ -1,10 +1,13 @@
-from db import get_connection
 # jugador_panel.py
+from db import get_connection
 import streamlit as st
 import sqlite3
 import scheduler
 from datetime import date, datetime
 import pytz
+from pathlib import Path
+import base64
+from remember import current_token_in_url, revoke_token, clear_url_token
 
 DB_NAME = "elo_futbol.db"
 CUPO_PARTIDO = 10
@@ -31,6 +34,15 @@ def _push_flash(msg, level="info"):
     _ensure_flash_store()
     st.session_state["flash"].append((level, msg))
 
+def _logout():
+    tok = current_token_in_url()
+    if tok:
+        revoke_token(tok)
+        clear_url_token()
+    for k in list(st.session_state.keys()):
+        if k in ("user", "admin_page", "jugador_page", "flash"):
+            del st.session_state[k]
+    st.rerun()
 
 def _render_flash():
     _ensure_flash_store()
@@ -206,15 +218,8 @@ def _reset_equipos(partido_id):
         conn.commit()
 
 
-# ---------- Renderer de equipos con camisetas ----------
+# ---------- Equipos UI ----------
 def _render_equipos(partido_id, inscritos):
-    """
-    Muestra Equipo 1 y Equipo 2 con encabezado que indica la camiseta del equipo,
-    y cada jugador precedido por el mismo ícono de color (⬛ / ⬜).
-    - 'oscura' -> ⬛
-    - 'clara'  -> ⬜
-    """
-
     def _eq_num(x):
         try:
             return int(x) if x is not None else None
@@ -222,10 +227,6 @@ def _render_equipos(partido_id, inscritos):
             return None
 
     def _team_color_info(jug_list):
-        """
-        Devuelve (emoji, etiqueta) según la mayoría de 'camiseta' en jug_list.
-        Si hay empate o no hay datos, cae en 'clara' (⬜).
-        """
         if not jug_list:
             return "⬜", "clara"
         osc = sum(1 for j in jug_list if (j.get("camiseta") or "").lower() == "oscura")
@@ -234,7 +235,6 @@ def _render_equipos(partido_id, inscritos):
             return "⬛", "oscura"
         if cla > osc:
             return "⬜", "clara"
-        # Empate: tomar la primera camiseta válida si existe; si no, 'clara'
         for j in jug_list:
             c = (j.get("camiseta") or "").lower()
             if c == "oscura":
@@ -245,7 +245,6 @@ def _render_equipos(partido_id, inscritos):
 
     eq1 = [j for j in inscritos if _eq_num(j.get("equipo")) == 1]
     eq2 = [j for j in inscritos if _eq_num(j.get("equipo")) == 2]
-
     icon1, lab1 = _team_color_info(eq1)
     icon2, lab2 = _team_color_info(eq2)
 
@@ -283,12 +282,8 @@ def _promote_from_waitlist_if_possible(partido_id):
     return True
 
 
-# ---------- Helpers para detección de columnas y conversión segura ----------
+# ---------- Helpers detección columnas ----------
 def _detect_col(conn, table: str, candidates: list[str]) -> str:
-    """
-    Devuelve el primer nombre de columna que exista en `table` entre `candidates`.
-    Si no puede detectar nada, devuelve candidates[0] como fallback.
-    """
     try:
         cur = conn.cursor()
         cur.execute(f"PRAGMA table_info({table})")
@@ -297,7 +292,7 @@ def _detect_col(conn, table: str, candidates: list[str]) -> str:
             try:
                 cols.append(r["name"])
             except Exception:
-                cols.append(r[1])  # (cid, name, type, notnull, dflt, pk)
+                cols.append(r[1])
         for c in candidates:
             if c in cols:
                 return c
@@ -306,19 +301,15 @@ def _detect_col(conn, table: str, candidates: list[str]) -> str:
     return candidates[0]
 
 
-# ---------- Partidos visibles (robusto: sin grupos = visible a todos) ----------
+# ---------- Partidos visibles ----------
 def _partidos_visibles_para_jugador(jugador_id: int):
     today_iso = date.today().isoformat()
     now_ar = _now_ar_str()
-
     with get_connection() as conn:
         cur = conn.cursor()
-
-        # Detectar nombres de columna reales en tablas puente
         jg_col = _detect_col(conn, "jugador_grupos", ["grupo_id", "group_id", "grupo"])
         pg_col = _detect_col(conn, "partido_grupos", ["grupo_id", "group_id", "grupo"])
 
-        # Grupos del jugador (tabla M2M)
         grupos_jugador = []
         try:
             cur.execute(f"SELECT {jg_col} FROM jugador_grupos WHERE jugador_id = ?", (jugador_id,))
@@ -330,35 +321,20 @@ def _partidos_visibles_para_jugador(jugador_id: int):
         except Exception:
             pass
 
-        # Fallback legacy: jugadores.grupo_id
         if not grupos_jugador:
             try:
                 cur.execute("PRAGMA table_info(jugadores)")
-                has_gcol = False
-                for r in cur.fetchall():
-                    try:
-                        nm = r["name"]
-                    except Exception:
-                        nm = r[1]
-                    if nm == "grupo_id":
-                        has_gcol = True
-                        break
+                has_gcol = any((r["name"] if isinstance(r, sqlite3.Row) else r[1]) == "grupo_id" for r in cur.fetchall())
                 if has_gcol:
                     cur.execute("SELECT grupo_id FROM jugadores WHERE id = ?", (jugador_id,))
                     rr = cur.fetchone()
                     if rr:
-                        try:
-                            g = rr["grupo_id"]
-                        except Exception:
-                            g = rr[0]
+                        g = rr["grupo_id"] if isinstance(rr, sqlite3.Row) else rr[0]
                         if g is not None:
                             grupos_jugador = [g]
             except Exception:
                 pass
 
-        # Clausula de grupos:
-        # - Si el partido NO tiene filas en partido_grupos -> visible para todos.
-        # - Si tiene, debe intersectar con un grupo del jugador.
         if grupos_jugador:
             placeholders = ",".join("?" * len(grupos_jugador))
             group_clause = f"""
@@ -370,16 +346,11 @@ def _partidos_visibles_para_jugador(jugador_id: int):
             """
             group_params = tuple(int(x) for x in grupos_jugador)
         else:
-            group_clause = """
-              AND NOT EXISTS (SELECT 1 FROM partido_grupos pg WHERE pg.partido_id = p.id)
-            """
+            group_clause = "AND NOT EXISTS (SELECT 1 FROM partido_grupos pg WHERE pg.partido_id = p.id)"
             group_params = ()
 
-        # Partidos “disponibles”: próximos, sin resultado, (tipo abierto o null),
-        # respetando publicar_desde (si existe).
         sql = f"""
-            SELECT
-              p.id, p.fecha, p.cancha_id, p.hora, p.tipo, p.ganador, p.diferencia_gol, p.publicar_desde
+            SELECT p.id, p.fecha, p.cancha_id, p.hora, p.tipo, p.ganador, p.diferencia_gol, p.publicar_desde
             FROM partidos p
             LEFT JOIN canchas c ON c.id = p.cancha_id
             WHERE substr(p.fecha, 1, 10) >= ?
@@ -394,7 +365,6 @@ def _partidos_visibles_para_jugador(jugador_id: int):
         cur.execute(sql, params)
         rows = cur.fetchall()
 
-        # Convertir a dict de forma segura con cur.description
         cols = [d[0] for d in cur.description] if cur.description else []
         out = []
         for r in rows:
@@ -405,13 +375,59 @@ def _partidos_visibles_para_jugador(jugador_id: int):
         return out
 
 
-# ---------- Vistas públicas del jugador (menú / partidos / stats / perfil) ----------
+# ---------- UI helpers (logo + menú apilado) ----------
+def _hero_logo():
+    """Logo PNG blanco centrado (robusto) usando HTML + flex."""
+    logo_path = Path(__file__).with_name("assets").joinpath("topo_logo_blanco.png")
+    if logo_path.exists():
+        import base64
+        b64 = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+        st.markdown(
+            f"""
+            <div style="display:flex;justify-content:center;margin:8px 0 18px 0;">
+              <img src="data:image/png;base64,{b64}" alt="Topo" style="width:220px;opacity:0.95;"/>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _menu_links_column():
+    """2 botones iguales, apilados y centrados (sin 'Ver mi perfil')."""
+    st.markdown(
+        """
+        <style>
+          .menu-col { max-width: 420px; margin: 0 auto; }
+          .menu-col .stButton>button{
+            width:100%;
+            height:56px;
+            border-radius:14px;
+            font-weight:800;
+            font-size:18px;
+            margin:8px 0;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="menu-col">', unsafe_allow_html=True)
+
+    if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles", use_container_width=True):
+        st.session_state["jugador_page"] = "partidos"; st.rerun()
+
+    if st.button("Ver mis estadísticas 📊", key="btn_mis_stats", use_container_width=True):
+        st.session_state["jugador_page"] = "stats"; st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ---------- Vistas públicas del jugador ----------
 def panel_menu_jugador(user):
-    # Disparo LAZY: materializar programaciones vencidas al entrar
+    """Pantalla principal del jugador: logo, bienvenida, menú y próximos partidos."""
     try:
         scheduler.run_programaciones_vencidas()
     except Exception:
-        # Silencioso: si falla, no bloquea la vista del jugador
         pass
 
     if "jugador_page" not in st.session_state:
@@ -422,7 +438,6 @@ def panel_menu_jugador(user):
     username = user.get("username") or "jugador"
     jugador_id = user.get("jugador_id")
 
-    # nombre público
     nombre_vinculado = None
     if jugador_id:
         with get_connection() as conn:
@@ -431,18 +446,77 @@ def panel_menu_jugador(user):
             r = _row_to_dict(cur.fetchone())
             nombre_vinculado = r["nombre"] if r else None
 
-    st.header(f"Bienvenido, {nombre_vinculado or username} 👋")
+    # --- HERO + saludo centrado ---
+    _hero_logo()
+    st.markdown(
+        f"<h1 style='text-align:center;margin:8px 0 18px 0;'>Bienvenido, {nombre_vinculado or username} 👋</h1>",
+        unsafe_allow_html=True,
+    )
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles"):
-            st.session_state["jugador_page"] = "partidos"; st.rerun()
-    with c2:
-        if st.button("Ver mis estadísticas 📊", key="btn_mis_stats"):
-            st.session_state["jugador_page"] = "stats"; st.rerun()
-    with c3:
-        if st.button("Ver mi perfil 👤", key="btn_mi_perfil"):
-            st.session_state["jugador_page"] = "perfil"; st.rerun()
+    # --- Menú apilado (2 botones iguales) ---
+    _menu_links_column()
+
+    # --- Próximos partidos confirmados ---
+    if not jugador_id:
+        return
+
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.id, p.fecha, p.hora, p.cancha_id, pj.camiseta
+            FROM partidos p
+            JOIN partido_jugadores pj ON pj.partido_id = p.id
+            WHERE pj.jugador_id = ?
+              AND pj.confirmado_por_jugador = 1
+              AND (p.ganador IS NULL OR TRIM(p.ganador) = '')
+              AND date(p.fecha) >= date('now')
+            ORDER BY p.fecha ASC
+        """, (jugador_id,))
+        proximos = _rows_to_dicts(cur.fetchall())
+
+    if proximos:
+        st.markdown("---")
+        st.markdown("### 🗓️ Tus próximos partidos:")
+
+        for p in proximos:
+            fecha = _format_fecha_ddmmyyyy(p["fecha"])
+            dia_es = _weekday_es(p["fecha"])  # ← día en español
+            hora_lbl = time_label_from_int(p["hora"])
+            cancha_name = _cancha_label(p["cancha_id"])
+
+            # Ejemplo: Martes 07/10/2025 • 19:00 hs • Espíritu Potrero (Gualeguaychú 2059)
+            titulo = f"{dia_es.capitalize()} {fecha} • {hora_lbl} hs • {cancha_name}"
+
+            # Detectar color de camiseta
+            camiseta = (p.get("camiseta") or "").strip().lower()
+            if camiseta == "oscura":
+                texto_camiseta = "Color de camiseta: Oscura ⬛"
+            elif camiseta == "clara":
+                texto_camiseta = "Color de camiseta: Clara ⬜"
+            else:
+                texto_camiseta = "Tu color de camiseta no fue definido aún"
+
+            with st.expander(titulo, expanded=False):
+                st.write(f"Estás confirmado ✅  \n{texto_camiseta}")
+                if st.button("Cancelar asistencia", key=f"cancel_menu_{p['id']}"):
+                    with get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "DELETE FROM partido_jugadores WHERE partido_id=? AND jugador_id=?",
+                            (p["id"], jugador_id),
+                        )
+                        conn.commit()
+                    _reset_equipos(p["id"])
+                    promoted = _promote_from_waitlist_if_possible(p["id"])
+                    if promoted:
+                        _push_flash("Cancelaste tu asistencia. Se promovió al primero de la lista de espera.", "info")
+                    else:
+                        _push_flash("Cancelaste tu asistencia.", "info")
+                    st.rerun()
+    else:
+        st.markdown("---")
+        st.markdown("_No tenés partidos próximos confirmados._")
+
 
 
 def panel_partidos_disponibles(user):
@@ -492,7 +566,6 @@ def panel_partidos_disponibles(user):
         titulo = f"{fecha_es} ({dia_es}) • {hora_lbl} hs • {cancha_name}{badge_txt}"
 
         with st.expander(titulo, expanded=False):
-            # Equipos generados => mostrar equipos; si no, lista simple
             if _equipos_estan_generados(partido_id):
                 _render_equipos(partido_id, inscritos)
             else:
@@ -536,9 +609,7 @@ def panel_partidos_disponibles(user):
                             cur.execute("DELETE FROM partido_jugadores WHERE partido_id=? AND jugador_id=?",
                                         (partido_id, jugador_id))
                             conn.commit()
-                        # desarmar equipos
                         _reset_equipos(partido_id)
-                        # promover
                         promoted = _promote_from_waitlist_if_possible(partido_id)
                         if promoted:
                             _push_flash("Cancelaste tu asistencia. Se promovió al primero de la lista de espera.", "info")
@@ -588,17 +659,15 @@ def panel_mi_perfil(user):
 
     st.subheader("👤 Mi perfil")
 
-    # Helpers locales para convertir filas a dict (Row o tupla)
     def _row_to_dict(cur, row):
         if row is None:
             return None
         try:
-            return dict(row)  # sqlite3.Row
+            return dict(row)
         except Exception:
             cols = [d[0] for d in cur.description] if cur.description else []
             return {cols[i]: row[i] for i in range(len(cols))}
 
-    # Normalizar el user que llega
     try:
         uid = user.get("id") if isinstance(user, dict) else None
     except Exception:
@@ -609,8 +678,6 @@ def panel_mi_perfil(user):
 
     with get_connection() as conn:
         cur = conn.cursor()
-
-        # Traer datos del usuario logueado
         cur.execute("SELECT * FROM usuarios WHERE id = ? LIMIT 1", (uid,))
         u = _row_to_dict(cur, cur.fetchone())
         if not u:
@@ -624,9 +691,6 @@ def panel_mi_perfil(user):
             j = _row_to_dict(cur, cur.fetchone())
             jugador_nombre = (j or {}).get("nombre")
 
-        # ───────────────────────────────────────────────
-        # Nombre del jugador
-        # ───────────────────────────────────────────────
         st.markdown("#### Nombre de jugador")
         if not jugador_id:
             st.info("Tu usuario no está vinculado a ningún jugador. Pedile al admin que te vincule para poder editar tu nombre visible.")
@@ -648,12 +712,8 @@ def panel_mi_perfil(user):
 
         st.markdown("---")
 
-        # ───────────────────────────────────────────────
-        # Cambio de contraseña (si existe columna)
-        # ───────────────────────────────────────────────
         st.markdown("#### Cambiar contraseña")
 
-        # Detectar qué columna de contraseña tiene la tabla usuarios
         cur.execute("PRAGMA table_info(usuarios)")
         pragma_rows = cur.fetchall()
         colnames = []
@@ -661,7 +721,6 @@ def panel_mi_perfil(user):
             try:
                 colnames.append(r["name"])
             except Exception:
-                # PRAGMA table_info devuelve: (cid, name, type, notnull, dflt_value, pk)
                 colnames.append(r[1])
 
         target_col = None
@@ -689,7 +748,6 @@ def panel_mi_perfil(user):
                 else:
                     value = pwd1
                     if hash_mode:
-                        # Si tenés hash en usuarios.py, usalo; sino, SHA-256 como fallback.
                         try:
                             from usuarios import hash_password
                             value = hash_password(pwd1)
