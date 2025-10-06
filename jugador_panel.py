@@ -463,7 +463,7 @@ def panel_menu_jugador(user):
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT p.id, p.fecha, p.hora, p.cancha_id
+            SELECT p.id, p.fecha, p.hora, p.cancha_id, pj.camiseta
             FROM partidos p
             JOIN partido_jugadores pj ON pj.partido_id = p.id
             WHERE pj.jugador_id = ?
@@ -484,8 +484,17 @@ def panel_menu_jugador(user):
             cancha_name = _cancha_label(p["cancha_id"])
             titulo = f"{fecha} • {hora_lbl} hs • {cancha_name}"
 
+            # Detectar color de camiseta
+            camiseta = (p.get("camiseta") or "").strip().lower()
+            if camiseta == "oscura":
+                texto_camiseta = "Color de camiseta: Oscura ⬛"
+            elif camiseta == "clara":
+                texto_camiseta = "Color de camiseta: Clara ⬜"
+            else:
+                texto_camiseta = "Tu color de camiseta no fue definido aún"
+
             with st.expander(titulo, expanded=False):
-                st.write("Estás confirmado ✅")
+                st.write(f"Estás confirmado ✅  \n{texto_camiseta}")
                 if st.button("Cancelar asistencia", key=f"cancel_menu_{p['id']}"):
                     with get_connection() as conn:
                         cur = conn.cursor()
@@ -504,7 +513,6 @@ def panel_menu_jugador(user):
     else:
         st.markdown("---")
         st.markdown("_No tenés partidos próximos confirmados._")
-
 
 
 def panel_partidos_disponibles(user):
