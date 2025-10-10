@@ -529,12 +529,18 @@ def _resumen_jugadores(temporada_sel: Optional[str]) -> pd.DataFrame:
       ORDER BY PJ DESC, j.nombre ASC
     """
     df = _read_df(sql, params)
-    # Opcional: ordenar columnas para mostrar ELO al lado del nombre
-    if not df.empty:
-        cols = ["Jugador", "ELO_actual", "PJ", "W", "E", "L", "WR_pct", "Puntos_3_1_0"]
-        df = df[cols]
-    return df
+    if df.empty:
+        return df
 
+    # Orden de columnas y ELO en entero (sin decimales)
+    cols = ["Jugador", "ELO_actual", "PJ", "W", "E", "L", "WR_pct", "Puntos_3_1_0"]
+    df = df[cols]
+    df["ELO_actual"] = df["ELO_actual"].round().astype(int)
+
+    # por si PJ viene float, lo normalizamos también
+    df["PJ"] = df["PJ"].astype(int)
+
+    return df
 
 # -----------------------
 # UI principal
