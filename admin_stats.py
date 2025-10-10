@@ -523,7 +523,9 @@ def _resumen_jugadores(temporada_sel: Optional[str]) -> pd.DataFrame:
         CASE WHEN (b.W+b.E+b.L)=0 THEN 0.0
              ELSE ROUND(100.0 * b.W / (b.W+b.E+b.L), 1)
         END AS WR_pct,
-        ROUND((3.0*b.W + 1.0*b.E), 1) AS Puntos_3_1_0
+        CASE WHEN (b.W+b.E+b.L)=0 THEN 0.0
+             ELSE ROUND(100.0 * (3.0*b.W + 1.0*b.E) / (3.0*(b.W+b.E+b.L)), 1)
+        END AS Rend_3_1_0_pct
       FROM base b
       JOIN jugadores j ON j.id = b.jugador_id
       ORDER BY PJ DESC, j.nombre ASC
@@ -532,15 +534,14 @@ def _resumen_jugadores(temporada_sel: Optional[str]) -> pd.DataFrame:
     if df.empty:
         return df
 
-    # Orden de columnas y ELO en entero (sin decimales)
-    cols = ["Jugador", "ELO_actual", "PJ", "W", "E", "L", "WR_pct", "Puntos_3_1_0"]
+    # Orden de columnas y formatos
+    cols = ["Jugador", "ELO_actual", "PJ", "W", "E", "L", "WR_pct", "Rend_3_1_0_pct"]
     df = df[cols]
     df["ELO_actual"] = df["ELO_actual"].round().astype(int)
-
-    # por si PJ viene float, lo normalizamos también
     df["PJ"] = df["PJ"].astype(int)
 
     return df
+
 
 # -----------------------
 # UI principal
