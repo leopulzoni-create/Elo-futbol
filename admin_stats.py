@@ -587,6 +587,7 @@ def panel_admin_stats():
         _render_streak_list(r_p, "loss")
     with colC:
         st.write("**Camiseta**")
+        st.caption("Basado en los últimos 3 meses.")
         _render_streak_list(r_c, "shirt")
 
     st.markdown("---")
@@ -621,9 +622,9 @@ def panel_admin_stats():
             )
         with cc:
             _mini_card(
-                "Partidos por ≤2 goles",
+                "Partidos parejos (empate o ≤2)",
                 f"{met['share_le2']}%",
-                "Proporción de partidos que terminaron por 1 o 2 goles (partidos parejos)."
+                "Incluye empates y diferencias de 1 o 2 goles."
             )
 
     st.markdown("---")
@@ -647,18 +648,56 @@ def panel_admin_stats():
 
     st.markdown("---")
 
-    # ============ Resumen de jugadores ============
+    # ============ Resumen de jugadores (con filtro por PJ) ============
     st.markdown("### 👥 Resumen de jugadores")
     df_rj = _resumen_jugadores(temporada_sel)
+
     if df_rj.empty:
         st.caption("Sin datos.")
     else:
-        st.dataframe(df_rj, use_container_width=True, hide_index=True)
+        # Filtro por mínimo de partidos jugados (PJ)
+        cflt1, cflt2 = st.columns([0.6, 0.4])
+        with cflt1:
+            preset = st.selectbox(
+                "Filtrar por mínimo de partidos jugados (PJ)",
+                ["Todos", "≥ 10", "≥ 20", "≥ 30", "Personalizado"],
+                index=0,
+                key="rj_filter_pj"
+            )
+
+        # valor por defecto y/o personalizado
+        min_pj = 0
+        if preset == "Personalizado":
+            with cflt2:
+                min_pj = st.number_input(
+                    "Mín. PJ",
+                    min_value=0, max_value=500, step=1, value=10,
+                    key="rj_filter_pj_custom"
+                )
+        else:
+            if preset == "≥ 10":
+                min_pj = 10
+            elif preset == "≥ 20":
+                min_pj = 20
+            elif preset == "≥ 30":
+                min_pj = 30
+
+        # aseguramos tipo entero por si viene como float
+        if "PJ" in df_rj.columns:
+            df_rj["PJ"] = df_rj["PJ"].astype(int)
+
+        df_show = df_rj[df_rj["PJ"] >= int(min_pj)].copy()
+
+        # Info de cuántos jugadores quedan tras el filtro
+        st.caption(f"Mostrando {len(df_show)} jugador(es) (mínimo {int(min_pj)} PJ).")
+
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
 
     st.divider()
     if st.button("⬅️ Volver al menú admin", key="admin_stats_back"):
         st.session_state.admin_page = None
         st.rerun()
+
 
 # Alias para compatibilidad con main.py
 def panel_estadisticas_globales():
