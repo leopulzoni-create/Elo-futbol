@@ -139,31 +139,23 @@ DIAS_HDR = ["Lu","Ma","Mi","Ju","Vi","Sá","Do"]  # una sola línea
 # Estilos: TODOS los días (y huecos) se renderizan con el MISMO alto/ancho
 _CALENDAR_CSS = """
 <style>
-/* ámbito local del calendario */
-.cal-wrap .stButton > button {
-  width: 100%;
-  height: 40px;            /* alto fijo */
-  padding: 0;
-  border-radius: 10px;
-  white-space: nowrap;     /* evita saltos de línea */
+.cal-wrap .stButton > button{
+  width:100%;
+  height:40px;             /* alto fijo */
+  padding:0;
+  border-radius:10px;
+  white-space:nowrap;      /* evita 2 líneas */
+  display:flex;            /* centro perfecto */
+  align-items:center;
+  justify-content:center;
+  gap:6px;                 /* espacio entre número y círculo */
+  line-height:1;           /* evita desplazamientos verticales */
+  font-variant-numeric: tabular-nums;  /* números de ancho fijo */
 }
-.cal-wrap .day-empty .stButton > button{
-  opacity: 0.35;           /* huecos más tenues */
-}
-.cal-wrap .month-box{
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-.cal-wrap .month-title{
-  margin: 0 0 8px 0;
-}
-.cal-wrap .weekday{
-  text-align: center;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
+.cal-wrap .day-empty .stButton > button{ opacity:0.35; }
+.cal-wrap .month-box{ border:1px solid rgba(255,255,255,0.12); border-radius:12px; padding:10px 12px; margin-bottom:12px; }
+.cal-wrap .month-title{ margin:0 0 8px 0; }
+.cal-wrap .weekday{ text-align:center; font-weight:600; margin-bottom:6px; }
 </style>
 """
 
