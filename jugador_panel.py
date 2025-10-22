@@ -424,7 +424,7 @@ def _menu_links_column():
 
 # ---------- Vistas públicas del jugador ----------
 def panel_menu_jugador(user):
-    """Pantalla principal del jugador: logo, bienvenida, menú y próximos partidos."""
+    """Pantalla principal del jugador: logo, bienvenida, menú y próximos partidos (confirmado por jugador o agregado por admin)."""
     try:
         scheduler.run_programaciones_vencidas()
     except Exception:
@@ -438,6 +438,7 @@ def panel_menu_jugador(user):
     username = user.get("username") or "jugador"
     jugador_id = user.get("jugador_id")
 
+    # nombre público
     nombre_vinculado = None
     if jugador_id:
         with get_connection() as conn:
@@ -453,41 +454,55 @@ def panel_menu_jugador(user):
         unsafe_allow_html=True,
     )
 
-    # --- Menú apilado (2 botones iguales) ---
+    # --- Menú apilado (botones) ---
     _menu_links_column()
 
-    # --- Próximos partidos confirmados ---
+    # --- Próximos partidos del jugador (confirmado o agregado por admin) ---
     if not jugador_id:
         return
+
+    # Usamos fecha local YYYY-MM-DD para evitar issues de UTC vs AR
+    today_iso_ar = date.today().isoformat()
 
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT p.id, p.fecha, p.hora, p.cancha_id, pj.camiseta
+            SELECT
+                p.id,
+                p.fecha,
+                p.hora,
+                p.cancha_id,
+                pj.camiseta,
+                pj.confirmado_por_jugador
             FROM partidos p
             JOIN partido_jugadores pj ON pj.partido_id = p.id
             WHERE pj.jugador_id = ?
-              AND pj.confirmado_por_jugador = 1
               AND (p.ganador IS NULL OR TRIM(p.ganador) = '')
-              AND date(p.fecha) >= date('now')
+              AND substr(p.fecha, 1, 10) >= ?
             ORDER BY p.fecha ASC
-        """, (jugador_id,))
+        """, (jugador_id, today_iso_ar))
         proximos = _rows_to_dicts(cur.fetchall())
 
+    st.markdown("---")
     if proximos:
-        st.markdown("---")
         st.markdown("### 🗓️ Tus próximos partidos:")
 
         for p in proximos:
-            fecha = _format_fecha_ddmmyyyy(p["fecha"])
-            dia_es = _weekday_es(p["fecha"])  # ← día en español
+            # Título con día de semana, fecha, hora y cancha
+            fecha_es = _format_fecha_ddmmyyyy(p["fecha"])
+            dia_es = _weekday_es(p["fecha"])
             hora_lbl = time_label_from_int(p["hora"])
             cancha_name = _cancha_label(p["cancha_id"])
+            titulo = f"{dia_es.capitalize()} {fecha_es} • {hora_lbl} hs • {cancha_name}"
 
-            # Ejemplo: Martes 07/10/2025 • 19:00 hs • Espíritu Potrero (Gualeguaychú 2059)
-            titulo = f"{dia_es.capitalize()} {fecha} • {hora_lbl} hs • {cancha_name}"
+            # Estado (confirmado por jugador vs agregado por admin)
+            confirmado_flag = int(p.get("confirmado_por_jugador") or 0)
+            if confirmado_flag == 1:
+                texto_estado = "Estás confirmado ✅"
+            else:
+                texto_estado = "Estás anotado (agregado por admin) ✍️"
 
-            # Detectar color de camiseta
+            # Color de camiseta (si el admin ya armó equipos)
             camiseta = (p.get("camiseta") or "").strip().lower()
             if camiseta == "oscura":
                 texto_camiseta = "Color de camiseta: Oscura ⬛"
@@ -497,8 +512,10 @@ def panel_menu_jugador(user):
                 texto_camiseta = "Tu color de camiseta no fue definido aún"
 
             with st.expander(titulo, expanded=False):
-                st.write(f"Estás confirmado ✅  \n{texto_camiseta}")
+                st.write(f"{texto_estado}  \n{texto_camiseta}")
+
                 if st.button("Cancelar asistencia", key=f"cancel_menu_{p['id']}"):
+                    # Baja del partido
                     with get_connection() as conn:
                         cur = conn.cursor()
                         cur.execute(
@@ -506,17 +523,19 @@ def panel_menu_jugador(user):
                             (p["id"], jugador_id),
                         )
                         conn.commit()
+
+                    # Desarmar equipos y promover desde lista de espera
                     _reset_equipos(p["id"])
                     promoted = _promote_from_waitlist_if_possible(p["id"])
+
                     if promoted:
                         _push_flash("Cancelaste tu asistencia. Se promovió al primero de la lista de espera.", "info")
                     else:
                         _push_flash("Cancelaste tu asistencia.", "info")
+
                     st.rerun()
     else:
-        st.markdown("---")
-        st.markdown("_No tenés partidos próximos confirmados._")
-
+        st.markdown("_No tenés partidos próximos._")
 
 
 def panel_partidos_disponibles(user):
