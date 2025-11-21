@@ -461,7 +461,6 @@ def panel_menu_jugador(user):
     if not jugador_id:
         return
 
-    # Usamos fecha local YYYY-MM-DD para evitar issues de UTC vs AR
     today_iso_ar = date.today().isoformat()
 
     with get_connection() as conn:
@@ -500,14 +499,15 @@ def panel_menu_jugador(user):
             if confirmado_flag == 1:
                 texto_estado = "Estás confirmado ✅"
             else:
-                texto_estado = "Estás anotado (agregado por admin) ✍️"
+                texto_estado = "Estás confirmado ✅ -Agregado por admin-"
 
-            # Color de camiseta (si el admin ya armó equipos)
+            # Color de camiseta (solo si ya fue definido)
             camiseta = (p.get("camiseta") or "").strip().lower()
-            if camiseta == "oscura":
-                texto_camiseta = "Color de camiseta: Oscura ⬛"
-            elif camiseta == "clara":
-                texto_camiseta = "Color de camiseta: Clara ⬜"
+            if camiseta in ("oscura", "clara"):
+                if camiseta == "oscura":
+                    texto_camiseta = "Color de camiseta: Oscura ⬛"
+                else:
+                    texto_camiseta = "Color de camiseta: Clara ⬜"
             else:
                 texto_camiseta = "Tu color de camiseta no fue definido aún"
 
@@ -536,7 +536,6 @@ def panel_menu_jugador(user):
                     st.rerun()
     else:
         st.markdown("_No tenés partidos próximos._")
-
 
 def panel_partidos_disponibles(user):
     _render_flash()
