@@ -274,7 +274,7 @@ def _promote_from_waitlist_if_possible(partido_id):
         cur = conn.cursor()
         cur.execute("""
             INSERT OR IGNORE INTO partido_jugadores (partido_id, jugador_id, confirmado_por_jugador, camiseta, ingreso_desde_espera)
-            VALUES (?, ?, 1, 'clara', 1)
+            VALUES (?, ?, 1, 1)
         """, (partido_id, first["jugador_id"]))
         cur.execute("DELETE FROM lista_espera WHERE partido_id=? AND jugador_id=?",
                     (partido_id, first["jugador_id"]))
@@ -611,7 +611,7 @@ def panel_partidos_disponibles(user):
                         cur = conn.cursor()
                         cur.execute("""
                             INSERT OR IGNORE INTO partido_jugadores (partido_id, jugador_id, confirmado_por_jugador, camiseta, ingreso_desde_espera)
-                            VALUES (?, ?, 1, 'clara', 0)
+                            VALUES (?, ?, 1, 0)
                         """, (partido_id, jugador_id))
                         conn.commit()
                     _push_flash("Confirmaste tu asistencia 🟢", "success")
