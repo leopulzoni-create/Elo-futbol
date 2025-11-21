@@ -213,5 +213,7 @@ else:
             jugador_panel.panel_mis_estadisticas(user)
         elif st.session_state.jugador_page == "perfil":
             jugador_panel.panel_mi_perfil(user)
+        elif st.session_state.jugador_page == "info_topo":
+            jugador_panel.panel_info_topo(user)
         else:
             st.session_state.jugador_page = "menu"; st.rerun()
