@@ -148,20 +148,35 @@ def obtener_partido_info(partido_id: int):
 JERSEYS = ("clara", "oscura")
 
 def obtener_camiseta_equipo(partido_id: int, equipo: int):
+    """
+    Devuelve 'clara' / 'oscura' si hay al menos un registro con camiseta
+    válida para ese equipo. Si no hay nada, devuelve None.
+
+    NOTA: asumimos que siempre escribimos la camiseta de forma uniforme
+    para todo el equipo, así que alcanza con leer una sola fila.
+    """
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT DISTINCT camiseta
-          FROM partido_jugadores
-         WHERE partido_id = ? AND equipo = ?
+        SELECT camiseta
+        FROM partido_jugadores
+        WHERE partido_id = ?
+          AND equipo = ?
+          AND camiseta IS NOT NULL
+          AND camiseta <> ''
+        LIMIT 1
     """, (partido_id, equipo))
-    vals = [r[0] for r in cur.fetchall() if r[0] is not None and r[0] != ""]
+    row = cur.fetchone()
     conn.close()
-    if not vals:
+
+    if not row:
         return None
-    if len(set(vals)) == 1:
-        return vals[0]
-    return None  # mezcla no uniforme
+
+    val = str(row[0]).lower()
+    if val in JERSEYS:
+        return val
+    return None
+
 
 def asignar_camiseta_equipo(partido_id: int, equipo: int, camiseta: str):
     if camiseta not in JERSEYS:
@@ -176,6 +191,7 @@ def asignar_camiseta_equipo(partido_id: int, equipo: int, camiseta: str):
     conn.commit()
     conn.close()
 
+
 def limpiar_camiseta_equipo(partido_id: int, equipo: int):
     conn = get_connection()
     cur = conn.cursor()
@@ -187,33 +203,32 @@ def limpiar_camiseta_equipo(partido_id: int, equipo: int):
     conn.commit()
     conn.close()
 
+
 def intercambiar_camisetas(partido_id: int):
     """
     Intercambia las camisetas entre Equipo 1 y Equipo 2.
 
-    Casos:
-    - Si ambos están sin asignar -> por defecto eq1='clara', eq2='oscura'.
-    - Si ambos tienen el mismo color -> también fuerza eq1='clara', eq2='oscura'.
-    - Si son distintos (clara/oscura) -> los swapea.
+    Casos manejados:
+    - Ambos sin asignar -> eq1 = 'clara', eq2 = 'oscura'
+    - Ambos con el mismo color -> eq1 = 'clara', eq2 = 'oscura'
+    - Distintos (clara / oscura) -> se swapean
     """
     c1 = obtener_camiseta_equipo(partido_id, 1)
     c2 = obtener_camiseta_equipo(partido_id, 2)
 
-    # Normalizar valores raros
+    # Normalizar
     if c1 not in JERSEYS:
         c1 = None
     if c2 not in JERSEYS:
         c2 = None
 
-    # Determinar nuevos valores
+    # Decidir nuevo esquema
     if (c1 is None and c2 is None) or (c1 == c2):
-        # Estado ambiguo: dejamos un esquema estándar
         nuevo1, nuevo2 = "clara", "oscura"
     else:
-        # Swapeo normal
         nuevo1, nuevo2 = c2, c1
 
-    # Aplicar cambios de forma explícita
+    # Aplicar cambios explícitos
     if nuevo1 is None:
         limpiar_camiseta_equipo(partido_id, 1)
     else:
@@ -223,7 +238,6 @@ def intercambiar_camisetas(partido_id: int):
         limpiar_camiseta_equipo(partido_id, 2)
     else:
         asignar_camiseta_equipo(partido_id, 2, nuevo2)
-
 
 
 # -------------------------
