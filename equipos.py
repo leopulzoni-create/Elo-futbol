@@ -206,38 +206,32 @@ def limpiar_camiseta_equipo(partido_id: int, equipo: int):
 
 def intercambiar_camisetas(partido_id: int):
     """
-    Intercambia las camisetas entre Equipo 1 y Equipo 2.
+    Alterna 'clara' <-> 'oscura' para todos los jugadores
+    de ambos equipos (1 y 2) de ese partido.
 
-    Casos manejados:
-    - Ambos sin asignar -> eq1 = 'clara', eq2 = 'oscura'
-    - Ambos con el mismo color -> eq1 = 'clara', eq2 = 'oscura'
-    - Distintos (clara / oscura) -> se swapean
+    Si el estado inicial es:
+        Equipo 1: clara
+        Equipo 2: oscura
+    después de llamar a esta función queda:
+        Equipo 1: oscura
+        Equipo 2: clara
+    y viceversa.
     """
-    c1 = obtener_camiseta_equipo(partido_id, 1)
-    c2 = obtener_camiseta_equipo(partido_id, 2)
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE partido_jugadores
+           SET camiseta = CASE
+                WHEN camiseta = 'clara' THEN 'oscura'
+                WHEN camiseta = 'oscura' THEN 'clara'
+                ELSE camiseta
+           END
+         WHERE partido_id = ?
+           AND equipo IN (1, 2)
+    """, (partido_id,))
+    conn.commit()
+    conn.close()
 
-    # Normalizar
-    if c1 not in JERSEYS:
-        c1 = None
-    if c2 not in JERSEYS:
-        c2 = None
-
-    # Decidir nuevo esquema
-    if (c1 is None and c2 is None) or (c1 == c2):
-        nuevo1, nuevo2 = "clara", "oscura"
-    else:
-        nuevo1, nuevo2 = c2, c1
-
-    # Aplicar cambios explícitos
-    if nuevo1 is None:
-        limpiar_camiseta_equipo(partido_id, 1)
-    else:
-        asignar_camiseta_equipo(partido_id, 1, nuevo1)
-
-    if nuevo2 is None:
-        limpiar_camiseta_equipo(partido_id, 2)
-    else:
-        asignar_camiseta_equipo(partido_id, 2, nuevo2)
 
 
 # -------------------------
@@ -610,37 +604,21 @@ def panel_generacion():
         st.divider()
         st.markdown("### 👕 Camisetas")
 
+        # Leemos SIEMPRE desde la base de datos
+        cam1 = obtener_camiseta_equipo(partido_id, 1) or "clara"
+        cam2 = obtener_camiseta_equipo(partido_id, 2) or "oscura"
+
         colj1, colj2 = st.columns(2)
         with colj1:
-            current1 = obtener_camiseta_equipo(partido_id, 1)
-            prev1 = "(sin asignar)" if current1 is None else current1
-            sel1 = st.selectbox("Equipo 1", ["(sin asignar)", "clara", "oscura"],
-                                index={"(sin asignar)":0,"clara":1,"oscura":2}[prev1],
-                                key="sb_eq1_cam")
-            if sel1 != prev1:
-                if sel1 == "(sin asignar)":
-                    limpiar_camiseta_equipo(partido_id, 1)
-                else:
-                    asignar_camiseta_equipo(partido_id, 1, sel1)
-                st.rerun()
-
+            st.markdown(f"**Equipo 1:** Camiseta {cam1.capitalize()}")
         with colj2:
-            current2 = obtener_camiseta_equipo(partido_id, 2)
-            prev2 = "(sin asignar)" if current2 is None else current2
-            sel2 = st.selectbox("Equipo 2", ["(sin asignar)", "clara", "oscura"],
-                                index={"(sin asignar)":0,"clara":1,"oscura":2}[prev2],
-                                key="sb_eq2_cam")
-            if sel2 != prev2:
-                if sel2 == "(sin asignar)":
-                    limpiar_camiseta_equipo(partido_id, 2)
-                else:
-                    asignar_camiseta_equipo(partido_id, 2, sel2)
-                st.rerun()
+            st.markdown(f"**Equipo 2:** Camiseta {cam2.capitalize()}")
 
+        # Único control: botón para intercambiar y recargar
         if st.button("↔️ Intercambiar camisetas", key="btn_swap_camisetas"):
             intercambiar_camisetas(partido_id)
-            st.success("Camisetas intercambiadas.")
             st.rerun()
+
 
         st.divider()
         st.markdown("### 👥 Vista para jugadores")
