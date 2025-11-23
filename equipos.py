@@ -199,7 +199,7 @@ def intercambiar_camisetas(partido_id: int):
     c1 = obtener_camiseta_equipo(partido_id, 1)
     c2 = obtener_camiseta_equipo(partido_id, 2)
 
-    # Normalizar None / valores raros
+    # Normalizar valores raros
     if c1 not in JERSEYS:
         c1 = None
     if c2 not in JERSEYS:
@@ -223,6 +223,7 @@ def intercambiar_camisetas(partido_id: int):
         limpiar_camiseta_equipo(partido_id, 2)
     else:
         asignar_camiseta_equipo(partido_id, 2, nuevo2)
+
 
 
 # -------------------------
