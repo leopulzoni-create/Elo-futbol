@@ -3,6 +3,7 @@ from auth import verify_user
 import scheduler  # dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
 ensure_admin_user()
+from PIL import Image
 
 # Persistencia de sesión vía token (remember.py)
 from remember import (

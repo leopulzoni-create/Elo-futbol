@@ -475,16 +475,31 @@ def panel_menu_jugador(user):
                 p.fecha,
                 p.hora,
                 p.cancha_id,
-                pj.camiseta,
-                pj.confirmado_por_jugador
+                -- si hay varias filas para el jugador en ese partido,
+                -- tomamos cualquier camiseta válida ('oscura' o 'clara')
+                MAX(
+                    CASE
+                        WHEN LOWER(COALESCE(pj.camiseta, '')) IN ('oscura', 'clara')
+                            THEN LOWER(pj.camiseta)
+                        ELSE ''
+                    END
+                ) AS camiseta,
+                -- y consideramos confirmado_si_cualquiera_de_las_filas_lo_esta
+                MAX(COALESCE(pj.confirmado_por_jugador, 0)) AS confirmado_por_jugador
             FROM partidos p
             JOIN partido_jugadores pj ON pj.partido_id = p.id
             WHERE pj.jugador_id = ?
               AND (p.ganador IS NULL OR TRIM(p.ganador) = '')
               AND substr(p.fecha, 1, 10) >= ?
-            ORDER BY p.fecha ASC
+            GROUP BY
+                p.id,
+                p.fecha,
+                p.hora,
+                p.cancha_id
+            ORDER BY datetime(p.fecha), p.id
         """, (jugador_id, today_iso_ar))
         proximos = _rows_to_dicts(cur.fetchall())
+
 
     st.markdown("---")
     if proximos:
