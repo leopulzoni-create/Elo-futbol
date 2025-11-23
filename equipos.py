@@ -188,16 +188,42 @@ def limpiar_camiseta_equipo(partido_id: int, equipo: int):
     conn.close()
 
 def intercambiar_camisetas(partido_id: int):
+    """
+    Intercambia las camisetas entre Equipo 1 y Equipo 2.
+
+    Casos:
+    - Si ambos están sin asignar -> por defecto eq1='clara', eq2='oscura'.
+    - Si ambos tienen el mismo color -> también fuerza eq1='clara', eq2='oscura'.
+    - Si son distintos (clara/oscura) -> los swapea.
+    """
     c1 = obtener_camiseta_equipo(partido_id, 1)
     c2 = obtener_camiseta_equipo(partido_id, 2)
+
+    # Normalizar None / valores raros
+    if c1 not in JERSEYS:
+        c1 = None
+    if c2 not in JERSEYS:
+        c2 = None
+
+    # Determinar nuevos valores
     if (c1 is None and c2 is None) or (c1 == c2):
-        asignar_camiseta_equipo(partido_id, 1, "clara")
-        asignar_camiseta_equipo(partido_id, 2, "oscura")
-        return
-    if c1 in JERSEYS:
-        asignar_camiseta_equipo(partido_id, 2, c1)
-    if c2 in JERSEYS:
-        asignar_camiseta_equipo(partido_id, 1, c2)
+        # Estado ambiguo: dejamos un esquema estándar
+        nuevo1, nuevo2 = "clara", "oscura"
+    else:
+        # Swapeo normal
+        nuevo1, nuevo2 = c2, c1
+
+    # Aplicar cambios de forma explícita
+    if nuevo1 is None:
+        limpiar_camiseta_equipo(partido_id, 1)
+    else:
+        asignar_camiseta_equipo(partido_id, 1, nuevo1)
+
+    if nuevo2 is None:
+        limpiar_camiseta_equipo(partido_id, 2)
+    else:
+        asignar_camiseta_equipo(partido_id, 2, nuevo2)
+
 
 # -------------------------
 # Bloques (duplas/tríos) a partir de 'bloque'
