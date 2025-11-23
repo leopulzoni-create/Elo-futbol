@@ -19,6 +19,17 @@ from remember import (
 from pathlib import Path
 import base64
 
+# === NUEVO: nombre y logo de la app ===
+ICON_PATH = Path(__file__).with_name("assets").joinpath("topologobaja.png")
+
+st.set_page_config(
+    page_title="TopoPartidos",              # nombre que va a tomar el atajo
+    page_icon=str(ICON_PATH),               # tu logo
+    layout="centered",                      # opcional, solo estética
+)
+
+ensure_admin_user()
+
 # ---------------------------
 # UI: logo para pantalla de login
 # ---------------------------
