@@ -419,7 +419,7 @@ def _menu_links_column():
     if st.button("Ver mis estadísticas 📊", key="btn_mis_stats", use_container_width=True):
         st.session_state["jugador_page"] = "stats"; st.rerun()
 
-    if st.button("🎯 Objetivos, reglas y etcéteras", key="btn_info_topo", use_container_width=True):
+    if st.button("Objetivos, reglas y etcéteras 🎯", key="btn_info_topo", use_container_width=True):
         st.session_state["jugador_page"] = "info_topo"; st.rerun()
 
 
@@ -694,11 +694,9 @@ A través del **registro estadístico de los encuentros**, se construye un **sis
     with st.expander("2) Cómo funciona la app", expanded=expand_all):
         st.markdown(
             """
-En **“Ver partidos disponibles”** podés anotarte a los encuentros. También hay **lista de espera**.
-**Anotarse es un compromiso sagrado**, y estar en la lista de espera también: si te sumás, **mantenete atento hasta 4 horas antes** del partido por si alguien se baja y tenés que **reemplazarlo**.
-
-Unas horas antes del partido se te asignará un **tono de camiseta (clara u oscura)**.
-**Recordá entrar para verificarlo** y **venir vestido en consecuencia**.
+Como usar (correctamente) la aplicacion:
+En "ver partidos disponibles", podras anotarte a los encuentros.
+Tambien cuenta con una lista de espera. **Anotarse es un compromiso sagrado**, y estar en la lista de espera tambien. Si te anotas en la misma, deberas estar atento hasta 4 horas antes del partido, por si alguien se baja y tenes que remplazarlo. Unas horas antes del partido, se te asignara un tono de camiseta (Claro o oscuro). Recuerda entrar para verificarlo, y ir vestido apropiadamente.
             """.strip()
         )
 
@@ -707,15 +705,20 @@ Unas horas antes del partido se te asignará un **tono de camiseta (clara u oscu
         st.markdown(
             """
 **Duración**: hasta que lo indique el encargado de la cancha.
+
 **Goles**: solo valen rematando desde campo rival; en duda, se convalida. El gol en contra vale desde cualquier zona.
-**Arco/Arquero**: sin manos ante pase intencional con el pie; con manos si el pase fue panza/pecho/cabeza. Autohabilitación solo tras atajar en juego; si vuelve a tomar con las manos, **TI indirecto** en el borde del área.
+
+**Arco/Arquero**: sin manos ante pase intencional con el pie; con manos si el pase fue panza/pecho/cabeza.
+
 **Saque de arco**: si es con la mano, no puede superar mitad de cancha en el aire.
+
 **Laterales**: con el pie, pelota sobre la línea. Sin gol directo.
+
 **Córner**: vale gol directo.
-**Faltas**: se permite ir al piso **con criterio**, priorizando integridad física. Mala fe → sanciones (advertencia/expulsión/suspensión).
+
 **Tiros libres**: todos **indirectos**, a 3 pasos.
+
 **Penal**: sin carrera.
-**Indumentaria**: **clara/oscura**; traer ambas.
             """.strip()
         )
 
@@ -723,14 +726,12 @@ Unas horas antes del partido se te asignará un **tono de camiseta (clara u oscu
     with st.expander("4) Preguntas frecuentes (FAQ)", expanded=expand_all):
         st.markdown(
             """
-**¿Por qué mi ELO sube poco si gané?**
-Depende de la diferencia de ELO entre equipos y del resultado. Ganar siendo favorito suma menos.
+**¿Puedo jugar con mis amigos, en vez de con los equipos asignados?**
+Lo ideal es jugar con los equipos que sugiere el sistema, que aumentan la posibilidad de tener un partido parejo.
 
-**¿Qué pasa si me bajo tarde?**
-Se promueve a la lista de espera; intentá avisar con antelación para no perjudicar el armado.
+Sin embargo, podés contactarte con el Admin y solicitarle jugar con quien quieras, o sugerir un armado de equipos.
+Para eso, recorda avisar con tiempo, y no siempre va a ser posible cumplirilo: El admin puede tener muchas solicitudes, o preferir separar gente por una cuestion de paridad entre equipos
 
-**¿Hay tabla de posiciones?**
-No. El enfoque es **colectivo** y **lúdico**; las estadísticas no buscan competir sino equilibrar.
             """.strip()
         )
 
@@ -738,8 +739,7 @@ No. El enfoque es **colectivo** y **lúdico**; las estadísticas no buscan compe
     with st.expander("5) Contacto / reportes", expanded=expand_all):
         st.markdown(
             """
-Si ves un **error de datos**, tenés una **sugerencia** o querés **reportar conducta**, avisá al admin.
-**Canales**: WhatsApp del grupo, email del admin o el formulario interno (si está habilitado).
+Si ves un **error en la aplicacion** o tenés una **sugerencia** o querés **anotar a un amigo**, avisá al Admin (Leo).
             """.strip()
         )
 
