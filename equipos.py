@@ -458,18 +458,45 @@ def generar_opciones_unicas(bloques, n_opciones=3, max_busquedas=180):
 def guardar_opcion(partido_id: int, combinacion):
     conn = get_connection()
     cur = conn.cursor()
+
+    # 1) Actualizar equipos de cada jugador
     for idx, nombre in enumerate(combinacion):
         if not nombre:
             continue
         equipo_val = 1 if idx < 5 else 2
-        cur.execute("""
+        cur.execute(
+            """
             UPDATE partido_jugadores
                SET equipo = ?
              WHERE partido_id = ?
                AND jugador_id = (SELECT id FROM jugadores WHERE nombre = ? LIMIT 1)
-        """, (equipo_val, partido_id, nombre))
+            """,
+            (equipo_val, partido_id, nombre),
+        )
+
+    # 2) Registrar quién generó estos equipos
+    admin_username = "desconocido"
+    user = getattr(st.session_state, "user", None)
+    try:
+        if isinstance(user, dict):
+            admin_username = user.get("username") or admin_username
+        elif user is not None and hasattr(user, "get"):
+            admin_username = user.get("username", admin_username)
+    except Exception:
+        pass
+
+    cur.execute(
+        """
+        UPDATE partidos
+           SET equipos_generados_por = ?
+         WHERE id = ?
+        """,
+        (admin_username, partido_id),
+    )
+
     conn.commit()
     conn.close()
+
 
 def borrar_equipos_confirmados(partido_id: int):
     conn = get_connection()

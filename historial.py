@@ -145,6 +145,36 @@ def _delta_str(antes, despues):
     signo = "+" if d >= 0 else ""
     return "%s%.1f" % (signo, d)
 
+def _team_elo_before_match(partido_id: int):
+    """
+    Devuelve un dict {equipo: suma_elo_antes} usando historial_elo.
+    Si no hay historial para ese partido (amistoso o no registrado), devuelve {}.
+    """
+    df = read_sql_df(
+        """
+        SELECT pj.equipo, SUM(he.elo_antes) AS suma_elo
+          FROM historial_elo he
+          JOIN partido_jugadores pj
+            ON pj.partido_id = he.partido_id
+           AND pj.jugador_id = he.jugador_id
+         WHERE he.partido_id = ?
+         GROUP BY pj.equipo
+        """,
+        (partido_id,),
+    )
+    if df.empty:
+        return {}
+
+    result = {}
+    for _, r in df.iterrows():
+        try:
+            eq = int(r["equipo"])
+            suma = r["suma_elo"] if r["suma_elo"] is not None else 0
+            result[eq] = float(suma)
+        except Exception:
+            continue
+    return result
+
 
 # =========================
 # Helpers comunes (años, partidos por fecha)
@@ -170,26 +200,25 @@ def _partidos_by_date(date_iso: str):
     - con jugadores asignados (al menos uno)
     - fecha exacta = date_iso
     """
-    return read_sql_df(
-        """
-        SELECT p.id AS partido_id,
-               p.fecha,
-               COALESCE(c.nombre,'—') AS cancha,
-               p.ganador,
-               p.diferencia_gol,
-               p.es_oficial
-          FROM partidos p
-     LEFT JOIN canchas c ON c.id = p.cancha_id
-         WHERE SUBSTR(p.fecha,1,10) = ?
-           AND (p.ganador IS NOT NULL OR p.diferencia_gol IS NOT NULL)
-           AND EXISTS (
-                 SELECT 1 FROM partido_jugadores pj
-                  WHERE pj.partido_id = p.id
-           )
-      ORDER BY p.id ASC
-    """,
-        (date_iso,),
-    )
+     return read_sql_df("""
+            SELECT p.id AS partido_id,
+                   p.fecha,
+                   COALESCE(c.nombre,'—') AS cancha,
+                   p.ganador,
+                   p.diferencia_gol,
+                   p.es_oficial,
+                   p.equipos_generados_por,
+                   p.resultado_cargado_por
+              FROM partidos p
+         LEFT JOIN canchas c ON c.id = p.cancha_id
+             WHERE SUBSTR(p.fecha,1,10) = ?
+               AND (p.ganador IS NOT NULL OR p.diferencia_gol IS NOT NULL)
+               AND EXISTS (
+                     SELECT 1 FROM partido_jugadores pj
+                      WHERE pj.partido_id = p.id
+               )
+          ORDER BY p.id ASC
+        """, (date_iso,))
 
 
 def _render_partidos_detail_for_day(date_iso: str):
@@ -207,7 +236,6 @@ def _render_partidos_detail_for_day(date_iso: str):
         ganador = row["ganador"]
 
         with st.expander("Partido #%d — %s — %s" % (pid, fecha, cancha), expanded=False):
-            # Badges de tipo de partido y diff
             _badge(_oficial_texto(es_ofi), _oficial_color(es_ofi))
             if pd.notna(dif):
                 try:
@@ -216,15 +244,30 @@ def _render_partidos_detail_for_day(date_iso: str):
                     st_diff = None
                 if st_diff is not None:
                     _badge("Diff: %d" % st_diff, "#334155")
-
-            # Texto resultado
             if ganador is None and (str(dif) == "0" or str(dif).strip() == "0.0"):
                 resultado_txt = "Empate"
             else:
                 resultado_txt = _ganador_texto_simple(ganador)
             st.markdown("**Resultado:** %s" % resultado_txt)
 
-            # Jugadores por equipo
+            # ELO de equipos antes de jugar (si hay historial_elo)
+            team_elos = _team_elo_before_match(pid)
+            if team_elos:
+                elo1 = int(round(team_elos.get(1, 0)))
+                elo2 = int(round(team_elos.get(2, 0)))
+                st.caption(f"ELO pre-partido — Equipo 1: {elo1} · Equipo 2: {elo2}")
+
+            # Admins que intervinieron
+            creador = row["equipos_generados_por"] if "equipos_generados_por" in row.index else None
+            res_admin = row["resultado_cargado_por"] if "resultado_cargado_por" in row.index else None
+            meta = []
+            if creador:
+                meta.append(f"Equipos generados por **{creador}**")
+            if res_admin:
+                meta.append(f"Resultado cargado por **{res_admin}**")
+            if meta:
+                st.caption(" · ".join(meta))
+
             df_j = read_sql_df(SQL_JUGADORES_DE_PARTIDO, (pid,))
             if df_j.empty:
                 st.caption("Sin jugadores asignados.")
@@ -234,14 +277,11 @@ def _render_partidos_detail_for_day(date_iso: str):
                     if sub.empty:
                         st.write("**%s:** (sin datos)" % _equipo_label(eq))
                         continue
-                    cam = (
-                        sub["camiseta"].mode().iloc[0]
-                        if sub["camiseta"].notna().any()
-                        else None
-                    )
+                    cam = sub["camiseta"].mode().iloc[0] if sub["camiseta"].notna().any() else None
                     icon = _camiseta_emoji(cam)
                     lista = " · ".join(sub["jugador_nombre"].tolist())
                     st.write("**%s %s:** %s" % (_equipo_label(eq), icon, lista))
+
 
             st.markdown("---")
             st.markdown("#### Acciones de corrección")

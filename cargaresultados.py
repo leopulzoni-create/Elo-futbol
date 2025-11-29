@@ -108,16 +108,18 @@ def _deshacer_partido(partido_id: int):
             cur.execute("UPDATE jugadores SET elo_actual = ? WHERE id = ?", (r["elo_antes"], r["jugador_id"]))
         cur.execute("DELETE FROM historial_elo WHERE partido_id = ?", (partido_id,))
 
-    cur.execute("""
+        cur.execute(
+        """
         UPDATE partidos
            SET ganador = NULL,
                diferencia_gol = NULL,
-               es_oficial = 0
+               es_oficial = 0,
+               resultado_cargado_por = NULL
          WHERE id = ?
-    """, (partido_id,))
-    cur.execute("UPDATE partidos SET tipo = 'abierto' WHERE id = ?", (partido_id,))
-    conn.commit()
-    conn.close()
+        """,
+        (partido_id,),
+    )
+
 
 # --- helper: cuenta partidos oficiales jugados de un jugador ---
 def _partidos_oficiales_jugador(conn, jugador_id: int) -> int:
@@ -178,12 +180,29 @@ def panel_resultados():
                     ganador = None          # empate -> NULL (evitamos violar CHECK)
                     dif_goles = 0           # coherencia
 
+                # Registrar quién cargó el resultado
+                        admin_username = "desconocido"
+                        user = getattr(st.session_state, "user", None)
+                        try:
+                            if isinstance(user, dict):
+                                admin_username = user.get("username") or admin_username
+                            elif user is not None and hasattr(user, "get"):
+                                admin_username = user.get("username", admin_username)
+                        except Exception:
+                            pass
+
                 # Guardar resultado (oficial/amistoso)
-                cur.execute("""
+                cur.execute(
+                    """
                     UPDATE partidos
-                       SET ganador = ?, diferencia_gol = ?, es_oficial = ?
+                       SET ganador = ?,
+                           diferencia_gol = ?,
+                           es_oficial = ?,
+                           resultado_cargado_por = ?
                      WHERE id = ?
-                """, (ganador, dif_goles, 1 if oficial == "Oficial" else 0, partido_id))
+                    """,
+                    (ganador, diff_goles, es_oficial, admin_username, partido_id),
+                )
                 conn.commit()
 
                 # Cerrar el partido para desaparecer de crear/generar
