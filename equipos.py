@@ -2,7 +2,7 @@ from db import get_connection
 # equipos.py
 import streamlit as st
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import unicodedata
 import random
 from collections import defaultdict
@@ -494,6 +494,58 @@ def equipos_ya_confirmados(partido_id: int):
     return True, team1, team2, elo1, elo2
 
 # -------------------------
+# Rachas de camisetas (últimos 2 meses)
+# -------------------------
+def calcular_rachas_camiseta(partido_id: int, fecha_ref):
+    """Devuelve lista de dicts {nombre, camiseta, veces} para jugadores
+    de este partido que hayan usado 3+ veces la misma camiseta ('clara'/'oscura')
+    en partidos de los últimos 2 meses (respecto a fecha_ref)."""
+    if fecha_ref is None:
+        return []
+
+    jugadores = obtener_jugadores_partido_full(partido_id)
+    if not jugadores:
+        return []
+
+    ids = [j["jugador_id"] for j in jugadores]
+    if not ids:
+        return []
+
+    # Ventana de 60 días hacia atrás desde la fecha del partido
+    inicio = (fecha_ref.date() - timedelta(days=60)).isoformat()
+    fin = fecha_ref.date().isoformat()
+
+    conn = get_connection()
+    cur = conn.cursor()
+    placeholders = ",".join(["?"] * len(ids))
+    params = ids + [inicio, fin]
+
+    sql = (
+        "SELECT pj.jugador_id, pj.camiseta, COUNT(*) as veces "
+        "FROM partido_jugadores pj "
+        "JOIN partidos p ON p.id = pj.partido_id "
+        f"WHERE pj.jugador_id IN ({placeholders}) "
+        "  AND pj.camiseta IN ('clara','oscura') "
+        "  AND date(p.fecha) BETWEEN ? AND ? "
+        "GROUP BY pj.jugador_id, pj.camiseta"
+    )
+    cur.execute(sql, params)
+    rows = cur.fetchall()
+    conn.close()
+
+    id_to_nombre = {j["jugador_id"]: j["nombre"] for j in jugadores}
+    avisos = []
+    for jugador_id, cam, veces in rows:
+        if cam in ("clara", "oscura") and veces >= 3:
+            avisos.append({
+                "nombre": id_to_nombre.get(jugador_id, f"Jugador {jugador_id}"),
+                "camiseta": cam,
+                "veces": int(veces),
+            })
+    return avisos
+
+
+# -------------------------
 # Vista jugadores (visual sin ELO)
 # -------------------------
 def render_vista_jugadores(partido_id: int):
@@ -617,12 +669,21 @@ def panel_generacion():
         # Único control: botón para intercambiar y recargar
         if st.button("↔️ Intercambiar camisetas", key="btn_swap_camisetas"):
             intercambiar_camisetas(partido_id)
+            st.success("Camisetas intercambiadas.")
             st.rerun()
 
+        # Aviso de rachas de camiseta (últimos 2 meses)
+        avisos = calcular_rachas_camiseta(partido_id, fecha_dt)
+        if avisos:
+            st.markdown("#### 📊 Rachas de camiseta (últimos 2 meses)")
+            for a in avisos:
+                color_txt = "clara" if a["camiseta"] == "clara" else "oscura"
+                st.write(f"- {a['nombre']}: {a['veces']} partidos con camiseta {color_txt}")
 
         st.divider()
         st.markdown("### 👥 Vista para jugadores")
         render_vista_jugadores(partido_id)
+
 
         st.divider()
         st.warning("Para rehacer equipos, primero eliminá los confirmados.")
