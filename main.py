@@ -172,6 +172,12 @@ else:
     # PANEL ADMIN
     # ==================================================
     if rol == "admin":
+        # Disparo LAZY también para el admin: materializa programaciones vencidas
+        try:
+            scheduler.run_programaciones_vencidas()
+        except Exception:
+            # Silencioso: nunca bloquear el panel admin por esto
+            pass
         st.header(f"Panel Administrador - {user['username']}")
         if "admin_page" not in st.session_state:
             st.session_state.admin_page = None
