@@ -96,6 +96,110 @@ def _badge(texto: str, background: str, color: str = "white"):
         unsafe_allow_html=True,
     )
 
+
+# --- FullCalendar ---
+from streamlit_calendar import calendar as fc_calendar
+
+def _partidos_eventos_para_fullcalendar(year: int):
+    """
+    Devuelve una lista de eventos FullCalendar a partir de tu BD,
+    solo con partidos jugados (con resultado), con jugadores y no futuros.
+    """
+    today_iso = date.today().isoformat()
+    df = read_sql_df("""
+        SELECT
+            p.id                           AS partido_id,
+            p.fecha                        AS fecha_iso,           -- 'YYYY-MM-DD HH:MM:SS' o 'YYYY-MM-DD'
+            COALESCE(c.nombre,'—')         AS cancha,
+            p.ganador, p.diferencia_gol, p.es_oficial
+        FROM partidos p
+        LEFT JOIN canchas c ON c.id = p.cancha_id
+        WHERE SUBSTR(p.fecha,1,4) = ?
+          AND SUBSTR(p.fecha,1,10) <= ?
+          AND (p.ganador IS NOT NULL OR p.diferencia_gol IS NOT NULL)
+          AND EXISTS (SELECT 1 FROM partido_jugadores pj WHERE pj.partido_id = p.id)
+        ORDER BY p.fecha ASC, p.id ASC
+    """, (str(year), today_iso))
+
+    events = []
+    if not df.empty:
+        for _, r in df.iterrows():
+            # start: ISO date (día); si tu 'fecha' tiene hora, la tomamos igual
+            start_iso = str(r["fecha_iso"])[:19]  # recorte seguro
+            # título corto
+            ganador = r["ganador"]
+            dif = r["diferencia_gol"]
+            if ganador is None and (str(dif) == "0" or str(dif).strip() == "0.0"):
+                res_txt = "Empate"
+            else:
+                try:
+                    gi = int(ganador)
+                    res_txt = {1: "Ganó Eq.1", 2: "Ganó Eq.2", 0: "Empate"}.get(gi, "Resultado")
+                except Exception:
+                    res_txt = "Resultado"
+            title = f"Partido #{int(r['partido_id'])} · {res_txt} · {r['cancha']}"
+            # color por oficialidad (idéntico criterio que usás en badges)
+            color = "#2563eb" if bool(r["es_oficial"]) else "#64748b"
+
+            events.append({
+                "id": str(int(r["partido_id"])),
+                "title": title,
+                "start": start_iso,
+                "allDay": True,
+                "backgroundColor": color,
+                "borderColor": color,
+            })
+    return events
+
+def _render_tab_calendario_fullcalendar():
+    st.subheader("🗓️ Calendario (FullCalendar)")
+
+    years = _years_available()
+    anio_sel = st.selectbox("Temporada (año)", years, index=0, key="hist_fc_anio")
+    try:
+        year = int(anio_sel)
+    except Exception:
+        year = datetime.now().year
+
+    events = _partidos_eventos_para_fullcalendar(year)
+
+    options = {
+        "locale": "es",
+        "initialView": "dayGridMonth",
+        "height": "auto",
+        "firstDay": 1,  # lunes
+        "headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth,dayGridWeek,listWeek"},
+        "eventDisplay": "block",
+        "dayMaxEventRows": 4,
+    }
+
+    st.markdown(
+        "<div style='border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:8px'>",
+        unsafe_allow_html=True
+    )
+    ret = fc_calendar(events=events, options=options, key=f"hist_fc_{year}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Click en evento => mostramos detalle con tus helpers existentes
+    if ret and isinstance(ret, dict):
+        ev_click = ret.get("eventClick", {})
+        ev = ev_click.get("event")
+        if ev and ev.get("id"):
+            pid = int(ev["id"])
+            # Reusar tu vista detallada por día, filtrando por partido
+            df = read_sql_df("""
+                SELECT p.id AS partido_id,
+                       p.fecha,
+                       COALESCE(c.nombre,'—') AS cancha,
+                       p.ganador, p.diferencia_gol, p.es_oficial
+                FROM partidos p
+                LEFT JOIN canchas c ON c.id = p.cancha_id
+                WHERE p.id = ?
+            """, (pid,))
+            if not df.empty:
+                st.markdown("### Detalle del partido seleccionado")
+                _render_partidos_detail_for_day(str(df.iloc[0]["fecha"])[:10])
+
 def _camiseta_emoji(camiseta: Optional[str]) -> str:
     if not camiseta:
         return "👕"
@@ -397,13 +501,16 @@ def _render_tab_historial_elo():
 def panel_historial():
     st.title("6️⃣ Historial")
 
-    tabs = st.tabs(["Calendario", "Historial ELO"])
+    tabs = st.tabs(["Calendario (FullCalendar)", "Calendario (simple)", "Historial ELO"])
     with tabs[0]:
-        _render_tab_calendario()
+        _render_tab_calendario_fullcalendar()
     with tabs[1]:
+        _render_tab_calendario()   # ← tu calendario actual por botones
+    with tabs[2]:
         _render_tab_historial_elo()
 
     st.divider()
     if st.button("⬅️ Volver al menú principal", key="hist_btn_volver"):
         st.session_state.admin_page = None
         st.rerun()
+
