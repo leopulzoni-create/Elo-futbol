@@ -494,56 +494,92 @@ def equipos_ya_confirmados(partido_id: int):
     return True, team1, team2, elo1, elo2
 
 # -------------------------
-# Rachas de camisetas (últimos 2 meses)
+# Rachas de camisetas (últimos 2 meses, racha actual)
 # -------------------------
 def calcular_rachas_camiseta(partido_id: int, fecha_ref):
-    """Devuelve lista de dicts {nombre, camiseta, veces} para jugadores
-    de este partido que hayan usado 3+ veces la misma camiseta ('clara'/'oscura')
-    en partidos de los últimos 2 meses (respecto a fecha_ref)."""
+    """
+    Devuelve lista de dicts:
+      {nombre, camiseta, veces}
+    para jugadores de ESTE partido que tengan una racha
+    actual de 3+ partidos con la misma camiseta ('clara' / 'oscura')
+    dentro de los últimos ~2 meses (60 días) respecto a fecha_ref.
+    """
     if fecha_ref is None:
         return []
 
+    # Jugadores de este partido
     jugadores = obtener_jugadores_partido_full(partido_id)
     if not jugadores:
         return []
 
-    ids = [j["jugador_id"] for j in jugadores]
-    if not ids:
-        return []
-
     # Ventana de 60 días hacia atrás desde la fecha del partido
-    inicio = (fecha_ref.date() - timedelta(days=60)).isoformat()
-    fin = fecha_ref.date().isoformat()
+    fecha_fin = fecha_ref.date()
+    fecha_ini = fecha_fin - timedelta(days=60)
 
     conn = get_connection()
     cur = conn.cursor()
-    placeholders = ",".join(["?"] * len(ids))
-    params = ids + [inicio, fin]
 
-    sql = (
-        "SELECT pj.jugador_id, pj.camiseta, COUNT(*) as veces "
-        "FROM partido_jugadores pj "
-        "JOIN partidos p ON p.id = pj.partido_id "
-        f"WHERE pj.jugador_id IN ({placeholders}) "
-        "  AND pj.camiseta IN ('clara','oscura') "
-        "  AND date(p.fecha) BETWEEN ? AND ? "
-        "GROUP BY pj.jugador_id, pj.camiseta"
-    )
-    cur.execute(sql, params)
-    rows = cur.fetchall()
-    conn.close()
-
-    id_to_nombre = {j["jugador_id"]: j["nombre"] for j in jugadores}
     avisos = []
-    for jugador_id, cam, veces in rows:
-        if cam in ("clara", "oscura") and veces >= 3:
-            avisos.append({
-                "nombre": id_to_nombre.get(jugador_id, f"Jugador {jugador_id}"),
-                "camiseta": cam,
-                "veces": int(veces),
-            })
-    return avisos
 
+    for j in jugadores:
+        jid = j["jugador_id"]
+
+        # Traemos TODOS los partidos de ese jugador, ordenados por fecha
+        cur.execute("""
+            SELECT p.fecha, pj.camiseta
+            FROM partidos p
+            JOIN partido_jugadores pj ON pj.partido_id = p.id
+            WHERE pj.jugador_id = ?
+              AND p.fecha IS NOT NULL
+            ORDER BY date(p.fecha) ASC, p.id ASC
+        """, (jid,))
+        rows = cur.fetchall()
+        if not rows:
+            continue
+
+        # Normalizamos camisetas y filtramos a la ventana [fecha_ini, fecha_fin]
+        cams = []
+        for fecha_str, cam in rows:
+            dt = parsear_fecha(fecha_str)
+            if dt is None:
+                continue
+            d = dt.date()
+            if d < fecha_ini or d > fecha_fin:
+                continue
+
+            if cam is None:
+                cams.append(None)
+            else:
+                c = str(cam).strip().lower()
+                if c.startswith("clara"):
+                    cams.append("clara")
+                elif c.startswith("osc"):
+                    cams.append("oscura")
+                else:
+                    cams.append(None)
+
+        if not cams:
+            continue
+
+        # Racha actual: contamos desde el partido más reciente hacia atrás
+        last_color = None
+        count = 0
+        for c in reversed(cams):
+            if c and (last_color is None or c == last_color):
+                last_color = c
+                count += 1
+            else:
+                break
+
+        if last_color and count >= 3:
+            avisos.append({
+                "nombre": j["nombre"],
+                "camiseta": last_color,
+                "veces": count,
+            })
+
+    conn.close()
+    return avisos
 
 # -------------------------
 # Vista jugadores (visual sin ELO)
