@@ -162,7 +162,8 @@ def _partidos_oficiales_jugador(conn, jugador_id: int) -> int:
 
 def panel_resultados():
     st.subheader("📊 Registrar resultado")
-    _flash_show_and_clear()
+
+    # NO mostramos flash acá arriba → se mueve debajo del botón principal
 
     # ==== Selector de partido listo ====
     opciones = _get_partidos_listos()
@@ -211,7 +212,10 @@ def panel_resultados():
                 "Si hay ganador, la diferencia de goles debería ser > 0."
             )
 
-        if st.button("✅ Registrar resultado", key="btn_registrar_resultado"):
+        # BOTÓN principal
+        clicked = st.button("✅ Registrar resultado", key="btn_registrar_resultado")
+
+        if clicked:
             try:
                 conn = get_connection()
                 cur = conn.cursor()
@@ -223,8 +227,8 @@ def panel_resultados():
                 elif "Equipo 2" in resultado:
                     ganador = 2
                 else:
-                    ganador = None          # empate -> NULL (evitamos violar CHECK)
-                    dif_goles = 0           # coherencia para empate
+                    ganador = None
+                    dif_goles = 0
 
                 es_oficial_flag = 1 if oficial == "Oficial" else 0
 
@@ -237,10 +241,10 @@ def panel_resultados():
                             admin_username = user.get("username") or admin_username
                         elif hasattr(user, "get"):
                             admin_username = user.get("username", admin_username)
-                except Exception:
+                except:
                     pass
 
-                # Guardar resultado (oficial/amistoso)
+                # Actualizar partidos
                 cur.execute(
                     """
                     UPDATE partidos
@@ -254,14 +258,11 @@ def panel_resultados():
                 )
                 conn.commit()
 
-                # Cerrar el partido para desaparecer de crear/generar
-                cur.execute(
-                    "UPDATE partidos SET tipo = 'cerrado' WHERE id = ?",
-                    (partido_id,),
-                )
+                # Cerrar partido
+                cur.execute("UPDATE partidos SET tipo = 'cerrado' WHERE id = ?", (partido_id,))
                 conn.commit()
 
-                # Si oficial, actualizar ELO + historial_elo
+                # SOLO si es oficial → calcular ELO + historial_elo
                 if oficial == "Oficial":
                     jugadores = equipos.obtener_jugadores_partido_full(partido_id)
                     team1 = [j for j in jugadores if j["equipo"] == 1]
@@ -269,7 +270,7 @@ def panel_resultados():
                     n1 = max(1, len(team1))
                     n2 = max(1, len(team2))
 
-                    # promedios ELO de equipo
+                    # promedios
                     elo1 = sum(j["elo"] for j in team1) / n1
                     elo2 = sum(j["elo"] for j in team2) / n2
 
@@ -281,7 +282,7 @@ def panel_resultados():
                     else:
                         score1, score2 = 0.0, 1.0
 
-                    # K con multiplicador por diferencia (empate => 0 => factor 1.0)
+                    # factor multiplicador por diferencia de gol
                     K_base = st.session_state.get("K_val", 80)
                     factor = 1.0
                     if dif_goles >= 6:
@@ -290,47 +291,39 @@ def panel_resultados():
                         factor = 1.3
                     K_team = float(K_base) * factor
 
-                    # cálculo ELO a nivel equipo
-                    new1, new2 = calcular_elo(
-                        elo1, elo2, score1, score2, K_team
-                    )
+                    # cálculo ELO de equipos
+                    new1, new2 = calcular_elo(elo1, elo2, score1, score2, K_team)
                     diff1, diff2 = new1 - elo1, new2 - elo2
 
                     # reparto por jugador
-                    delta1_por_jugador = diff1 / n1
-                    delta2_por_jugador = diff2 / n2
+                    delta1 = diff1 / n1
+                    delta2 = diff2 / n2
 
-                    # aplicar a cada jugador con boost +25% para sus primeros 5 oficiales
+                    # actualizar ELO jugador x jugador
                     for j in team1 + team2:
                         elo_pre = j["elo"]
-                        delta = (
-                            delta1_por_jugador
-                            if j in team1
-                            else delta2_por_jugador
-                        )
-                        prev_oficiales = _partidos_oficiales_jugador(
-                            conn, j["jugador_id"]
-                        )
+                        delta = delta1 if j in team1 else delta2
+
+                        prev_oficiales = _partidos_oficiales_jugador(conn, j["jugador_id"])
                         if prev_oficiales < 5:
                             delta *= 1.25
-                        elo_post = elo_pre + delta
-                        elo_post_store = round(elo_post)
+
+                        elo_post = round(elo_pre + delta)
 
                         cur.execute(
                             "UPDATE jugadores SET elo_actual = ? WHERE id = ?",
-                            (elo_post_store, j["jugador_id"]),
+                            (elo_post, j["jugador_id"]),
                         )
                         cur.execute(
                             """
-                            INSERT INTO historial_elo
-                                (jugador_id, partido_id, elo_antes, elo_despues, fecha)
+                            INSERT INTO historial_elo (jugador_id, partido_id, elo_antes, elo_despues, fecha)
                             VALUES (?, ?, ?, ?, ?)
                             """,
                             (
                                 j["jugador_id"],
                                 partido_id,
                                 elo_pre,
-                                elo_post_store,
+                                elo_post,
                                 datetime.now().isoformat(),
                             ),
                         )
@@ -340,24 +333,25 @@ def panel_resultados():
 
                 st.session_state["_last_registered_id"] = partido_id
                 st.session_state["_flash_msg"] = (
-                    "Resultado del partido %s registrado y partido cerrado."
-                    % partido_id
+                    f"Resultado del partido {partido_id} registrado y partido cerrado."
                 )
                 st.session_state["_flash_type"] = "success"
                 st.rerun()
 
             except Exception as e:
-                st.session_state["_flash_msg"] = (
-                    "Error al registrar resultado: %s" % e
-                )
+                st.session_state["_flash_msg"] = f"Error al registrar resultado: {e}"
                 st.session_state["_flash_type"] = "error"
                 st.rerun()
+
+        # 👇 AHORA se muestra el flash DEBAJO del botón, donde corresponde
+        _flash_show_and_clear()
 
     else:
         st.info(
             "No hay partidos listos para registrar "
             "(se requieren equipos confirmados, camisetas y sin resultado cargado)."
         )
+        _flash_show_and_clear()
 
     # ==== Deshacer último resultado ====
     st.divider()
@@ -365,35 +359,29 @@ def panel_resultados():
 
     ultimo_id = st.session_state.get("_last_registered_id")
     if ultimo_id is not None:
-        st.caption(
-            "Último resultado cargado en esta sesión: partido ID %s" % ultimo_id
-        )
+        st.caption(f"Último resultado cargado en esta sesión: partido ID {ultimo_id}")
         col_a, col_b = st.columns([1, 1])
         with col_a:
             if st.button(
-                "Deshacer resultado de ID %s" % ultimo_id,
+                f"Deshacer resultado de ID {ultimo_id}",
                 key="btn_deshacer_ultimo_sesion",
             ):
                 try:
                     _deshacer_partido(ultimo_id)
                     st.session_state["_flash_msg"] = (
-                        "Se deshizo el resultado del partido %s (reabierto)."
-                        % ultimo_id
+                        f"Se deshizo el resultado del partido {ultimo_id} (reabierto)."
                     )
                     st.session_state["_flash_type"] = "warning"
                     st.session_state.pop("_last_registered_id", None)
                     st.rerun()
                 except Exception as e:
                     st.session_state["_flash_msg"] = (
-                        "Error al deshacer (último de sesión): %s" % e
+                        f"Error al deshacer (último de sesión): {e}"
                     )
                     st.session_state["_flash_type"] = "error"
                     st.rerun()
         with col_b:
-            if st.button(
-                "Olvidar este ‘último’ (no deshacer)",
-                key="btn_olvidar_ultimo_sesion",
-            ):
+            if st.button("Olvidar este ‘último’ (no deshacer)", key="btn_olvidar_ultimo_sesion"):
                 st.session_state.pop("_last_registered_id", None)
                 st.rerun()
 
@@ -401,31 +389,25 @@ def panel_resultados():
         ult = _ultimo_partido_con_resultado()
         if ult:
             ult_id, ult_of = ult
-            st.caption(
-                "Último partido con resultado en base de datos: ID %s" % ult_id
-            )
-            if st.button(
-                "Deshacer resultado de ID %s" % ult_id,
-                key="btn_deshacer_ultimo_db",
-            ):
+            st.caption(f"Último partido con resultado en base de datos: ID {ult_id}")
+            if st.button(f"Deshacer resultado de ID {ult_id}", key="btn_deshacer_ultimo_db"):
                 try:
                     _deshacer_partido(ult_id)
                     st.session_state["_flash_msg"] = (
-                        "Se deshizo el resultado del partido %s (reabierto)."
-                        % ult_id
+                        f"Se deshizo el resultado del partido {ult_id} (reabierto)."
                     )
                     st.session_state["_flash_type"] = "warning"
                     st.rerun()
                 except Exception as e:
                     st.session_state["_flash_msg"] = (
-                        "Error al deshacer (último en DB): %s" % e
+                        f"Error al deshacer (último en DB): {e}"
                     )
                     st.session_state["_flash_type"] = "error"
                     st.rerun()
         else:
             st.caption("No hay resultados cargados para deshacer.")
 
-    # ==== Control K (al final) ====
+    # ==== Control K ====
     st.divider()
     K_val = st.number_input(
         "Valor K (ELO)",
@@ -437,10 +419,9 @@ def panel_resultados():
     )
     st.session_state.K_val = K_val
 
-    # ==== Volver siempre visible ====
+    # ==== Volver ====
     st.divider()
-    if st.button(
-        "⬅️ Volver al menú principal", key="btn_volver_menu_resultados"
-    ):
+    if st.button("⬅️ Volver al menú principal", key="btn_volver_menu_resultados"):
         st.session_state.admin_page = None
         st.rerun()
+
