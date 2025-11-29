@@ -710,15 +710,21 @@ A través del **registro estadístico de los encuentros**, se construye un **sis
     with st.expander("2) Cómo funciona la app", expanded=expand_all):
         st.markdown(
             """
-Como usar (correctamente) la aplicacion:
+**Como usar (correctamente) la aplicacion:**
 
-En "ver partidos disponibles", podras anotarte a los encuentros,
+En **"ver partidos disponibles"**, podras anotarte a los encuentros,
 tambien cuenta con una lista de espera, en la cual si alguien se baja pasaras a ser un jugador activo
 
 **Anotarse es un compromiso sagrado**, y estar en la lista de espera tambien.
 Si te anotas en la misma, deberas estar atento hasta 4 horas antes del partido, por si alguien se baja y tenes que remplazarlo.
 
 Unas horas antes del partido, se te asignara un tono de camiseta (Claro o oscuro). Recuerda entrar para verificarlo, y ir vestido apropiadamente.
+
+**En "Ver mis estadisticas" encontraras tus estadisticas personales.**
+
+Esta seccion es para que puedas tener tu propio registro, ver datos curiosos, y tambien se asignan unas medallas simbolicas por temporada.
+Sin embargo, toda estadistica parte de una interpretacion, y la plataforma no es la realidad. Por lo tanto, la idea no es que las estadisticas te decepcionen o te vuelvan arrogante, ya que no reflejan el mundo real y su fin es meramente lúdico.
+Tampoco es una competencia, ni hay una tabla de posiciones, ya que el fin de esta metodologia es colectivo,  orientado al desarrollo grupal.
             """.strip()
         )
 
