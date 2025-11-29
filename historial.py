@@ -1,4 +1,4 @@
-# historial.py — Calendario (FullCalendar) + Historial ELO
+# historial.py — Calendario (FullCalendar) + Historial ELO + Edición/Eliminación
 from db import get_connection
 from pathlib import Path
 from typing import Optional
@@ -207,6 +207,7 @@ def _render_partidos_detail_for_day(date_iso: str):
         ganador = row["ganador"]
 
         with st.expander("Partido #%d — %s — %s" % (pid, fecha, cancha), expanded=False):
+            # Badges de tipo de partido y diff
             _badge(_oficial_texto(es_ofi), _oficial_color(es_ofi))
             if pd.notna(dif):
                 try:
@@ -216,12 +217,14 @@ def _render_partidos_detail_for_day(date_iso: str):
                 if st_diff is not None:
                     _badge("Diff: %d" % st_diff, "#334155")
 
+            # Texto resultado
             if ganador is None and (str(dif) == "0" or str(dif).strip() == "0.0"):
                 resultado_txt = "Empate"
             else:
                 resultado_txt = _ganador_texto_simple(ganador)
             st.markdown("**Resultado:** %s" % resultado_txt)
 
+            # Jugadores por equipo
             df_j = read_sql_df(SQL_JUGADORES_DE_PARTIDO, (pid,))
             if df_j.empty:
                 st.caption("Sin jugadores asignados.")
@@ -239,6 +242,144 @@ def _render_partidos_detail_for_day(date_iso: str):
                     icon = _camiseta_emoji(cam)
                     lista = " · ".join(sub["jugador_nombre"].tolist())
                     st.write("**%s %s:** %s" % (_equipo_label(eq), icon, lista))
+
+            st.markdown("---")
+            st.markdown("#### Acciones de corrección")
+
+            # ====== Formulario para EDITAR resultado (NO toca ELO) ======
+            with st.form(f"edit_result_form_{pid}"):
+                st.caption(
+                    "✏️ Editar resultado (solo tabla de partidos; "
+                    "el ELO ya calculado **no** se modifica automáticamente)."
+                )
+
+                opciones = ["Sin resultado", "Ganó Equipo 1", "Ganó Equipo 2", "Empate"]
+                if ganador is None:
+                    default_label = "Sin resultado"
+                else:
+                    try:
+                        gi = int(ganador)
+                    except Exception:
+                        gi = None
+                    if gi == 1:
+                        default_label = "Ganó Equipo 1"
+                    elif gi == 2:
+                        default_label = "Ganó Equipo 2"
+                    elif gi == 0:
+                        default_label = "Empate"
+                    else:
+                        default_label = "Sin resultado"
+
+                idx_default = opciones.index(default_label)
+                label_sel = st.selectbox("Resultado", opciones, index=idx_default)
+
+                diff_default = 0
+                if dif is not None:
+                    try:
+                        diff_default = int(abs(float(dif)))
+                    except Exception:
+                        diff_default = 0
+
+                diff_value = st.number_input(
+                    "Diferencia de gol",
+                    min_value=0,
+                    max_value=20,
+                    value=diff_default,
+                    step=1,
+                )
+
+                guardar = st.form_submit_button("💾 Guardar resultado")
+                if guardar:
+                    map_res = {
+                        "Sin resultado": None,
+                        "Ganó Equipo 1": 1,
+                        "Ganó Equipo 2": 2,
+                        "Empate": 0,
+                    }
+                    nuevo_ganador = map_res.get(label_sel)
+                    nueva_diff = diff_value if label_sel != "Sin resultado" else None
+
+                    with get_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "UPDATE partidos SET ganador = ?, diferencia_gol = ? WHERE id = ?",
+                            (nuevo_ganador, nueva_diff, pid),
+                        )
+                        conn.commit()
+                    st.success(
+                        "Resultado actualizado. Recordá que el ELO no se recalculó automáticamente."
+                    )
+                    st.rerun()
+
+            # ====== Botón para ELIMINAR partido del historial ======
+            st.markdown("---")
+            st.markdown("#### Eliminar este partido del historial")
+            st.caption(
+                "🗑️ Esta acción intenta revertir el ELO de este partido usando `historial_elo` "
+                "y luego borra el partido y sus registros asociados.\n\n"
+                "**Usalo solo si este partido fue cargado por error**. "
+                "Si hay muchos partidos oficiales posteriores, el ranking puede quedar inconsistente."
+            )
+
+            col_conf, col_btn = st.columns([1, 1])
+            with col_conf:
+                confirm = st.checkbox(
+                    "✅ Confirmo que quiero eliminar este partido",
+                    key=f"del_conf_{pid}",
+                )
+            with col_btn:
+                if st.button(
+                    "🗑️ Eliminar partido del historial",
+                    key=f"del_btn_{pid}",
+                ):
+                    if not confirm:
+                        st.warning(
+                            "Marcá la casilla de confirmación antes de eliminar."
+                        )
+                    else:
+                        # Revertir ELO de este partido usando historial_elo
+                        df_he = read_sql_df(
+                            """
+                            SELECT jugador_id, elo_antes
+                            FROM historial_elo
+                            WHERE partido_id = ?
+                        """,
+                            (pid,),
+                        )
+
+                        with get_connection() as conn:
+                            cur = conn.cursor()
+
+                            # Revertir elo_actual para cada jugador involucrado
+                            if not df_he.empty:
+                                for _, r_he in df_he.iterrows():
+                                    jug_id = int(r_he["jugador_id"])
+                                    elo_antes = r_he["elo_antes"]
+                                    cur.execute(
+                                        "UPDATE jugadores SET elo_actual = ? WHERE id = ?",
+                                        (elo_antes, jug_id),
+                                    )
+
+                            # Borrar registros del partido
+                            cur.execute(
+                                "DELETE FROM historial_elo WHERE partido_id = ?",
+                                (pid,),
+                            )
+                            cur.execute(
+                                "DELETE FROM partido_jugadores WHERE partido_id = ?",
+                                (pid,),
+                            )
+                            cur.execute(
+                                "DELETE FROM partidos WHERE id = ?",
+                                (pid,),
+                            )
+                            conn.commit()
+
+                        st.success(
+                            "Partido eliminado del historial. "
+                            "Si lo necesitás, podés volver a crearlo y cargar el resultado desde cero."
+                        )
+                        st.rerun()
 
 
 # =========================
@@ -345,7 +486,7 @@ def _render_tab_calendario_fullcalendar():
     ret = fc_calendar(events=events, options=options, key="hist_fc_%d" % year)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Click en evento => mostramos detalle
+    # Click en evento => mostramos detalle del/los partidos de ese día
     if isinstance(ret, dict):
         ev_click = ret.get("eventClick")
         if isinstance(ev_click, dict):
