@@ -1,5 +1,5 @@
 from db import get_connection
-# jugadores.py — versión con mejoras de UX
+# jugadores.py — versión con mejoras de UX + descripción en 'foto'
 import streamlit as st
 import sqlite3
 
@@ -10,7 +10,8 @@ def get_connection():
     from db import get_connection as _gc
     return _gc()
 
-    return conn
+    return conn  # (inaccesible, se deja por compat)
+
 
 # ==== Migración mínima: tabla puente jugador_grupos ====
 def _ensure_jugador_grupos():
@@ -26,6 +27,22 @@ def _ensure_jugador_grupos():
             """
         )
         conn.commit()
+
+
+def _ensure_descripcion_en_jugadores():
+    """Garantiza que exista la columna 'foto' (TEXT), usada como 'descripcion'."""
+    try:
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(jugadores)")
+            # En la mayoría de los casos row_factory=sqlite3.Row => r["name"]
+            cols = [r["name"] if isinstance(r, sqlite3.Row) else r[1] for r in cur.fetchall()]
+            if "foto" not in cols:
+                cur.execute("ALTER TABLE jugadores ADD COLUMN foto TEXT")
+                conn.commit()
+    except Exception:
+        # Si falla (por ejemplo en Turso ya existe), seguimos sin interrumpir la UI.
+        pass
 
 
 def _cargar_grupos():
@@ -82,6 +99,7 @@ def _set_memberships(jugador_id, group_ids):
 # =======================
 def panel_gestion():
     _ensure_jugador_grupos()
+    _ensure_descripcion_en_jugadores()
     st.subheader("Gestión de jugadores ⚽")
 
     accion = st.radio(
@@ -101,6 +119,10 @@ def panel_gestion():
             key="elo_create_v3",
         )
         estado = st.selectbox("Estado", ["activo", "inactivo"])
+        descripcion = st.text_area(
+            "Descripción (opcional)",
+            placeholder="Breve descripción de cómo juega, posición, estilo…",
+        )
 
         # --- Selección de grupos (multiselect) ---
         grupos = _cargar_grupos()
@@ -124,10 +146,10 @@ def panel_gestion():
                 if existe:
                     st.error(f"Ya existe un jugador con el nombre '{nombre}'.")
                 else:
-                    # guardamos jugador (dejamos jugadores.grupo_id en NULL para no duplicar fuentes de verdad)
+                    # fuente de verdad de grupos: tabla puente (grupo_id queda NULL)
                     cur.execute(
-                        "INSERT INTO jugadores (nombre, elo_actual, estado, grupo_id) VALUES (?, ?, ?, NULL)",
-                        (nombre, int(elo_inicial), estado),
+                        "INSERT INTO jugadores (nombre, elo_actual, estado, grupo_id, foto) VALUES (?, ?, ?, NULL, ?)",
+                        (nombre, int(elo_inicial), estado, (descripcion or None)),
                     )
                     jugador_id = cur.lastrowid
                     conn.commit()
@@ -172,6 +194,14 @@ def panel_gestion():
                 index=(0 if jugador["estado"] == "activo" else 1),
             )
 
+            # Descripción (usa la col. 'foto')
+            desc_actual = jugador["foto"] if "foto" in jugador.keys() else None
+            nueva_desc = st.text_area(
+                "Descripción (opcional)",
+                value=(desc_actual or ""),
+                key=f"desc_edit_{jugador_id}",
+            )
+
             # --- Selección de grupos (multiselect) ---
             grupos = _cargar_grupos()
             opciones_grupos = [f"{g['id']} - {g['nombre']}" for g in grupos]
@@ -211,10 +241,11 @@ def panel_gestion():
                                SET nombre = ?,
                                    elo_actual = ?,
                                    estado = ?,
-                                   grupo_id = NULL   -- fuente de verdad: tabla puente
+                                   grupo_id = NULL,   -- fuente de verdad: tabla puente
+                                   foto = ?
                              WHERE id = ?
                             """,
-                            (nuevo_nombre, int(nuevo_elo), nuevo_estado, jugador_id),
+                            (nuevo_nombre, int(nuevo_elo), nuevo_estado, (nueva_desc or None), jugador_id),
                         )
                         conn.commit()
                         # membresías M2M (reemplazo)
@@ -261,11 +292,12 @@ def panel_gestion():
                    j.nombre,
                    j.elo_actual,
                    j.estado,
+                   j.foto AS descripcion,
                    GROUP_CONCAT(g.nombre, ', ') AS grupos
             FROM jugadores j
             LEFT JOIN jugador_grupos jg ON jg.jugador_id = j.id
             LEFT JOIN grupos g ON g.id = jg.grupo_id
-            GROUP BY j.id, j.nombre, j.elo_actual, j.estado
+            GROUP BY j.id, j.nombre, j.elo_actual, j.estado, j.foto
             ORDER BY (j.estado='activo') DESC, j.nombre ASC
             """
         )
@@ -284,6 +316,7 @@ def panel_gestion():
                         "ELO": int(round(j["elo_actual"] or 0)),
                         "Estado": j["estado"],
                         "Grupos": j["grupos"] or "—",
+                        "Descripción": (j["descripcion"] or "—"),
                     }
                 )
             st.dataframe(data, use_container_width=True, hide_index=True)
