@@ -701,6 +701,7 @@ def panel_info_topo(user):
         st.markdown(
             """
 Es una plataforma para generar **partidos parejos y divertidos**.
+
 A través del **registro estadístico de los encuentros**, se construye un **sistema de ELO por jugador** que ayuda a armar equipos balanceados, buscando que cada partido tenga **igual probabilidad de victoria** para ambos lados.
             """.strip()
         )
@@ -710,8 +711,14 @@ A través del **registro estadístico de los encuentros**, se construye un **sis
         st.markdown(
             """
 Como usar (correctamente) la aplicacion:
-En "ver partidos disponibles", podras anotarte a los encuentros.
-Tambien cuenta con una lista de espera. **Anotarse es un compromiso sagrado**, y estar en la lista de espera tambien. Si te anotas en la misma, deberas estar atento hasta 4 horas antes del partido, por si alguien se baja y tenes que remplazarlo. Unas horas antes del partido, se te asignara un tono de camiseta (Claro o oscuro). Recuerda entrar para verificarlo, y ir vestido apropiadamente.
+
+En "ver partidos disponibles", podras anotarte a los encuentros,
+tambien cuenta con una lista de espera, en la cual si alguien se baja pasaras a ser un jugador activo
+
+**Anotarse es un compromiso sagrado**, y estar en la lista de espera tambien.
+Si te anotas en la misma, deberas estar atento hasta 4 horas antes del partido, por si alguien se baja y tenes que remplazarlo.
+
+Unas horas antes del partido, se te asignara un tono de camiseta (Claro o oscuro). Recuerda entrar para verificarlo, y ir vestido apropiadamente.
             """.strip()
         )
 
