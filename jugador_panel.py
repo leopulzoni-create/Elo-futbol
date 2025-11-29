@@ -350,7 +350,16 @@ def _partidos_visibles_para_jugador(jugador_id: int):
             group_params = ()
 
         sql = f"""
-            SELECT p.id, p.fecha, p.cancha_id, p.hora, p.tipo, p.ganador, p.diferencia_gol, p.publicar_desde
+            SELECT
+                p.id,
+                p.fecha,
+                p.cancha_id,
+                p.hora,
+                p.tipo,
+                p.ganador,
+                p.diferencia_gol,
+                p.publicar_desde,
+                p.equipos_generados_por
             FROM partidos p
             LEFT JOIN canchas c ON c.id = p.cancha_id
             WHERE substr(p.fecha, 1, 10) >= ?
@@ -361,6 +370,7 @@ def _partidos_visibles_para_jugador(jugador_id: int):
               {group_clause}
             ORDER BY datetime(p.fecha), p.id
         """
+
         params = [today_iso, now_ar] + list(group_params)
         cur.execute(sql, params)
         rows = cur.fetchall()
@@ -578,6 +588,7 @@ def panel_partidos_disponibles(user):
     for p in partidos:
         partido_id = p["id"]
         fecha = p["fecha"]
+        creador = (p.get("equipos_generados_por") or "").strip()
         hora_lbl = time_label_from_int(p["hora"])
         cancha_name = _cancha_label(p["cancha_id"])
         inscritos = _jugadores_en_partido(partido_id)
@@ -604,6 +615,9 @@ def panel_partidos_disponibles(user):
 
         with st.expander(titulo, expanded=False):
             if _equipos_estan_generados(partido_id):
+                # 👇 NUEVO: mostrar quién generó los equipos (solo si hay nombre)
+                if creador:
+                    st.caption(f"Equipos generados por **{creador}**")
                 _render_equipos(partido_id, inscritos)
             else:
                 st.write("### Inscripciones")
