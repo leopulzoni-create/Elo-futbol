@@ -128,14 +128,21 @@ def set_url_page(page: str):
 # ================================
 COOKIE_NAME = "auth_token"
 
-# Componente global de cookies
-cookie_manager = stx.CookieManager()
+
+@st.fragment
+def _get_cookie_manager():
+    """
+    Fragmento que renderiza el componente CookieManager y lo devuelve.
+    Usar siempre este helper para get/set/delete cookies.
+    """
+    return stx.CookieManager()
 
 
 def get_token_from_cookie() -> str:
     """Devuelve el token guardado en cookie (o "" si no hay nada)."""
     try:
-        cookies = cookie_manager.get_all()
+        cookie_manager = _get_cookie_manager()
+        cookies = cookie_manager.get_all() or {}
         return cookies.get(COOKIE_NAME, "") or ""
     except Exception:
         return ""
@@ -144,7 +151,8 @@ def get_token_from_cookie() -> str:
 def set_token_cookie(token: str):
     """Guarda el token en una cookie del navegador."""
     try:
-        cookie_manager.set(COOKIE_NAME, token)
+        cookie_manager = _get_cookie_manager()
+        cookie_manager.set(COOKIE_NAME, token)  # expira en ~1 día por defecto
     except Exception:
         pass
 
@@ -152,6 +160,7 @@ def set_token_cookie(token: str):
 def clear_token_cookie():
     """Borra la cookie de token."""
     try:
+        cookie_manager = _get_cookie_manager()
         cookie_manager.delete(COOKIE_NAME)
     except Exception:
         pass
