@@ -17,9 +17,8 @@ from remember import (
 
 from pathlib import Path
 import base64
-import extra_streamlit_components as stx  # para cookies
 
-# === NUEVO: nombre y logo de la app ===
+# === Nombre y logo de la app ===
 ICON_PATH = Path(__file__).with_name("assets").joinpath("topologobaja.png")
 
 st.set_page_config(
@@ -31,33 +30,48 @@ st.set_page_config(
 ensure_admin_user()
 
 # ---------------------------
-# CookieManager para remember-me
+# JS: persistir token en localStorage y restaurar auth en la URL
 # ---------------------------
-COOKIE_NAME = "auth_token"
-cookie_manager = stx.CookieManager(key="topo_auth_cookie")  # una sola instancia por run
+st.markdown(
+    """
+<script>
+(function() {
+  try {
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+    const auth = params.get("auth");
 
-
-def get_token_from_cookie() -> str:
-    try:
-        cookies = cookie_manager.get_all() or {}
-        return cookies.get(COOKIE_NAME, "") or ""
-    except Exception:
-        return ""
-
-
-def set_token_cookie(token: str):
-    try:
-        cookie_manager.set(COOKIE_NAME, token)
-    except Exception:
-        pass
-
-
-def clear_token_cookie():
-    try:
-        cookie_manager.delete(COOKIE_NAME)
-    except Exception:
-        pass
-
+    if (auth) {
+      // Si la URL ya tiene auth, lo guardamos en localStorage
+      try {
+        window.localStorage.setItem("topo_auth_token", auth);
+      } catch (e) {
+        // ignoramos errores de storage
+      }
+    } else {
+      // Si no hay auth en la URL, probamos leerlo de localStorage
+      let stored = null;
+      try {
+        stored = window.localStorage.getItem("topo_auth_token");
+      } catch (e) {
+        stored = null;
+      }
+      if (stored) {
+        params.set("auth", stored);
+        const newUrl = url.origin + url.pathname + "?" + params.toString();
+        if (newUrl !== window.location.href) {
+          window.location.replace(newUrl);
+        }
+      }
+    }
+  } catch (e) {
+    // no rompemos nada si falla el script
+  }
+})();
+</script>
+""",
+    unsafe_allow_html=True,
+)
 
 # ---------------------------
 # UI: logo para pantalla de login
@@ -76,28 +90,17 @@ def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
         )
 
 # ==================================================
-#  Autologin por token (URL o cookie)
+#  Autologin por token (solo URL, pero URL se repara con JS)
 # ==================================================
 ensure_tables()
 if "user" not in st.session_state:
     url_token = current_token_in_url()
 
     if url_token:
-        # Caso normal: token en la URL (?auth=...)
         user_from_token = validate_token(url_token)
         if user_from_token:
             st.session_state.user = user_from_token
             st.rerun()
-    else:
-        # Si la URL no tiene token, probamos leerlo de cookie
-        cookie_token = get_token_from_cookie()
-        if cookie_token:
-            user_from_token = validate_token(cookie_token)
-            if user_from_token:
-                # Reinyectamos el token a la URL para mantener el flujo actual
-                set_url_token(cookie_token)
-                st.session_state.user = user_from_token
-                st.rerun()
 
 # =============================
 # CSS global: ocultar “cadenitas” (anchors de títulos)
@@ -144,8 +147,15 @@ with col_btn:
                     if tok:
                         revoke_token(tok)
                         clear_url_token()
-                    clear_token_cookie()  # limpiamos la cookie
-
+                    # también limpiamos localStorage del lado cliente
+                    st.markdown(
+                        """
+<script>
+try { window.localStorage.removeItem("topo_auth_token"); } catch (e) {}
+</script>
+""",
+                        unsafe_allow_html=True,
+                    )
                     for k in list(st.session_state.keys()):
                         if k in ("user", "admin_page", "jugador_page", "flash"):
                             del st.session_state[k]
@@ -163,8 +173,14 @@ with col_btn:
                     if tok:
                         revoke_token(tok)
                         clear_url_token()
-                    clear_token_cookie()  # limpiamos la cookie
-
+                    st.markdown(
+                        """
+<script>
+try { window.localStorage.removeItem("topo_auth_token"); } catch (e) {}
+</script>
+""",
+                        unsafe_allow_html=True,
+                    )
                     for k in list(st.session_state.keys()):
                         if k in ("user", "admin_page", "jugador_page", "flash"):
                             del st.session_state[k]
@@ -208,8 +224,7 @@ if "user" not in st.session_state:
                     user_id = row[0] if row else None
                 if user_id:
                     tok = issue_token(user_id)
-                    set_url_token(tok)      # URL
-                    set_token_cookie(tok)   # COOKIE
+                    set_url_token(tok)  # la URL ahora tiene ?auth=...
 
             st.rerun()
         else:
