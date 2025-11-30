@@ -8,3 +8,4 @@ passlib[bcrypt]==1.7.4
 pillow
 streamlit-calendar==0.5.0
 extra-streamlit-components
+streamlit-cookies-controller==0.0.4
