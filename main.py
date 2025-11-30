@@ -17,9 +17,9 @@ from remember import (
 
 from pathlib import Path
 import base64
-from streamlit_cookies_controller import CookieController  # NUEVO
+import extra_streamlit_components as stx  # para cookies
 
-# === Nombre y logo de la app ===
+# === NUEVO: nombre y logo de la app ===
 ICON_PATH = Path(__file__).with_name("assets").joinpath("topologobaja.png")
 
 st.set_page_config(
@@ -31,34 +31,30 @@ st.set_page_config(
 ensure_admin_user()
 
 # ---------------------------
-# CookieController para remember-me
+# CookieManager para remember-me
 # ---------------------------
 COOKIE_NAME = "auth_token"
-cookie_controller = CookieController(key="topo_cookies")  # una instancia global
+cookie_manager = stx.CookieManager(key="topo_auth_cookie")  # una sola instancia por run
 
 
 def get_token_from_cookie() -> str:
-    """Lee el token de la cookie (o '' si no existe)."""
     try:
-        cookies = cookie_controller.getAll() or {}
+        cookies = cookie_manager.get_all() or {}
         return cookies.get(COOKIE_NAME, "") or ""
     except Exception:
         return ""
 
 
 def set_token_cookie(token: str):
-    """Guarda el token en una cookie del navegador."""
     try:
-        # max_age en segundos (aquí ~30 días)
-        cookie_controller.set(COOKIE_NAME, token, max_age=30 * 24 * 60 * 60)
+        cookie_manager.set(COOKIE_NAME, token)
     except Exception:
         pass
 
 
 def clear_token_cookie():
-    """Elimina la cookie del token."""
     try:
-        cookie_controller.remove(COOKIE_NAME)
+        cookie_manager.delete(COOKIE_NAME)
     except Exception:
         pass
 
