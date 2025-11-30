@@ -5,7 +5,6 @@ from crear_admin import ensure_admin_user
 ensure_admin_user()
 from PIL import Image
 
-# Persistencia de sesión vía token (remember.py)
 from remember import (
     ensure_tables,
     validate_token,
@@ -14,13 +13,11 @@ from remember import (
     current_token_in_url,
     set_url_token,
     clear_url_token,
-    get_token_from_cookie,   # NUEVO
-    set_token_cookie,        # NUEVO
-    clear_token_cookie,      # NUEVO
 )
 
 from pathlib import Path
 import base64
+import extra_streamlit_components as stx  # para cookies
 
 # === NUEVO: nombre y logo de la app ===
 ICON_PATH = Path(__file__).with_name("assets").joinpath("topologobaja.png")
@@ -32,6 +29,35 @@ st.set_page_config(
 )
 
 ensure_admin_user()
+
+# ---------------------------
+# CookieManager para remember-me
+# ---------------------------
+COOKIE_NAME = "auth_token"
+cookie_manager = stx.CookieManager(key="topo_auth_cookie")  # una sola instancia por run
+
+
+def get_token_from_cookie() -> str:
+    try:
+        cookies = cookie_manager.get_all() or {}
+        return cookies.get(COOKIE_NAME, "") or ""
+    except Exception:
+        return ""
+
+
+def set_token_cookie(token: str):
+    try:
+        cookie_manager.set(COOKIE_NAME, token)
+    except Exception:
+        pass
+
+
+def clear_token_cookie():
+    try:
+        cookie_manager.delete(COOKIE_NAME)
+    except Exception:
+        pass
+
 
 # ---------------------------
 # UI: logo para pantalla de login
@@ -118,7 +144,7 @@ with col_btn:
                     if tok:
                         revoke_token(tok)
                         clear_url_token()
-                    clear_token_cookie()  # NUEVO: limpiamos la cookie
+                    clear_token_cookie()  # limpiamos la cookie
 
                     for k in list(st.session_state.keys()):
                         if k in ("user", "admin_page", "jugador_page", "flash"):
@@ -137,7 +163,7 @@ with col_btn:
                     if tok:
                         revoke_token(tok)
                         clear_url_token()
-                    clear_token_cookie()  # NUEVO: limpiamos la cookie
+                    clear_token_cookie()  # limpiamos la cookie
 
                     for k in list(st.session_state.keys()):
                         if k in ("user", "admin_page", "jugador_page", "flash"):
@@ -183,7 +209,7 @@ if "user" not in st.session_state:
                 if user_id:
                     tok = issue_token(user_id)
                     set_url_token(tok)      # URL
-                    set_token_cookie(tok)   # NUEVO: cookie para futuros inicios sin ?auth
+                    set_token_cookie(tok)   # COOKIE
 
             st.rerun()
         else:
@@ -243,39 +269,30 @@ else:
 
         elif st.session_state.admin_page == "jugadores":
             import jugadores
-
             jugadores.panel_gestion()
         elif st.session_state.admin_page == "canchas":
             import canchas
-
             canchas.panel_canchas()
         elif st.session_state.admin_page == "crear_partido":
             import partidos
-
             partidos.panel_creacion()
         elif st.session_state.admin_page == "generar_equipos":
             import equipos
-
             equipos.panel_generacion()
         elif st.session_state.admin_page == "registrar_resultado":
             import cargaresultados
-
             cargaresultados.panel_resultados()
         elif st.session_state.admin_page == "historial":
             import historial
-
             historial.panel_historial()
         elif st.session_state.admin_page == "usuarios":
             import usuarios
-
             usuarios.panel_gestion()
         elif st.session_state.admin_page == "temporadas":
             import admin_temporadas
-
             admin_temporadas.panel_temporadas()
         elif st.session_state.admin_page == "estadisticas_globales":
             import admin_stats
-
             admin_stats.panel_estadisticas_globales()
 
     # ==================================================

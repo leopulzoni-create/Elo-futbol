@@ -3,7 +3,6 @@ from db import get_connection
 import sqlite3, secrets, hashlib
 import streamlit as st
 from datetime import datetime, timedelta
-import extra_streamlit_components as stx
 
 DB_NAME = "elo_futbol.db"
 
@@ -121,37 +120,3 @@ def current_page_in_url(default: str = "menu") -> str:
 
 def set_url_page(page: str):
     st.query_params["page"] = page
-
-
-# ================================
-#  Remember-me también en cookie
-# ================================
-COOKIE_NAME = "auth_token"
-
-# Un solo CookieManager global, con key única
-cookie_manager = stx.CookieManager(key="topo_auth_cookie")
-
-
-def get_token_from_cookie() -> str:
-    """Devuelve el token guardado en cookie (o "" si no hay nada)."""
-    try:
-        cookies = cookie_manager.get_all() or {}
-        return cookies.get(COOKIE_NAME, "") or ""
-    except Exception:
-        return ""
-
-
-def set_token_cookie(token: str):
-    """Guarda el token en una cookie del navegador."""
-    try:
-        cookie_manager.set(COOKIE_NAME, token)  # expira en ~1 día por defecto
-    except Exception:
-        pass
-
-
-def clear_token_cookie():
-    """Borra la cookie de token."""
-    try:
-        cookie_manager.delete(COOKIE_NAME)
-    except Exception:
-        pass
