@@ -4,6 +4,7 @@ import scheduler  # dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
 ensure_admin_user()
 from PIL import Image
+from datetime import datetime, timedelta  # NUEVO
 
 from remember import (
     ensure_tables,
@@ -38,7 +39,18 @@ cookie_manager = stx.CookieManager(key="topo_auth_cookie")  # una sola instancia
 
 
 def get_token_from_cookie() -> str:
+    """Devuelve el token guardado en cookie (o "" si no hay nada).
+
+    En algunos entornos (sobre todo móvil) CookieManager tarda un toque en
+    inicializarse, así que hacemos un pequeño sleep después del primer get_all().
+    """
     try:
+        import time
+
+        # Primer llamada para disparar la carga
+        _ = cookie_manager.get_all()
+        time.sleep(0.3)  # pequeño delay para darle tiempo al componente
+
         cookies = cookie_manager.get_all() or {}
         return cookies.get(COOKIE_NAME, "") or ""
     except Exception:
@@ -46,13 +58,16 @@ def get_token_from_cookie() -> str:
 
 
 def set_token_cookie(token: str):
+    """Guarda el token en una cookie del navegador (persistente ~30 días)."""
     try:
-        cookie_manager.set(COOKIE_NAME, token)
+        expires_at = datetime.utcnow() + timedelta(days=30)
+        cookie_manager.set(COOKIE_NAME, token, expires_at=expires_at)
     except Exception:
         pass
 
 
 def clear_token_cookie():
+    """Borra la cookie de token."""
     try:
         cookie_manager.delete(COOKIE_NAME)
     except Exception:
