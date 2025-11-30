@@ -14,6 +14,9 @@ from remember import (
     current_token_in_url,
     set_url_token,
     clear_url_token,
+    get_token_from_cookie,   # NUEVO
+    set_token_cookie,        # NUEVO
+    clear_token_cookie,      # NUEVO
 )
 
 from pathlib import Path
@@ -47,35 +50,53 @@ def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
         )
 
 # ==================================================
-#  Autologin por token
+#  Autologin por token (URL o cookie)
 # ==================================================
 ensure_tables()
 if "user" not in st.session_state:
     url_token = current_token_in_url()
+
     if url_token:
+        # Caso normal: token en la URL (?auth=...)
         user_from_token = validate_token(url_token)
         if user_from_token:
             st.session_state.user = user_from_token
             st.rerun()
+    else:
+        # Si la URL no tiene token, probamos leerlo de cookie
+        cookie_token = get_token_from_cookie()
+        if cookie_token:
+            user_from_token = validate_token(cookie_token)
+            if user_from_token:
+                # Reinyectamos el token a la URL para mantener el flujo actual
+                set_url_token(cookie_token)
+                st.session_state.user = user_from_token
+                st.rerun()
 
 # =============================
 # CSS global: ocultar “cadenitas” (anchors de títulos)
 # =============================
-st.markdown("""
+st.markdown(
+    """
 <style>
   :where(h1,h2,h3,h4,h5,h6) a[href^="#"] {
     display: none !important;
     visibility: hidden !important;
   }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-st.markdown("""
+st.markdown(
+    """
 <style>
   /* oculta el botón de 'ver a pantalla completa' que Streamlit agrega a imágenes */
   button[title="View fullscreen"] { display: none !important; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # =============================
 # Encabezado minimal + Logout (condicional)
@@ -97,6 +118,8 @@ with col_btn:
                     if tok:
                         revoke_token(tok)
                         clear_url_token()
+                    clear_token_cookie()  # NUEVO: limpiamos la cookie
+
                     for k in list(st.session_state.keys()):
                         if k in ("user", "admin_page", "jugador_page", "flash"):
                             del st.session_state[k]
@@ -114,6 +137,8 @@ with col_btn:
                     if tok:
                         revoke_token(tok)
                         clear_url_token()
+                    clear_token_cookie()  # NUEVO: limpiamos la cookie
+
                     for k in list(st.session_state.keys()):
                         if k in ("user", "admin_page", "jugador_page", "flash"):
                             del st.session_state[k]
@@ -149,12 +174,16 @@ if "user" not in st.session_state:
                     from db import get_connection
                     with get_connection() as conn:
                         cur = conn.cursor()
-                        cur.execute("SELECT id FROM usuarios WHERE username = ?", (user["username"],))
+                        cur.execute(
+                            "SELECT id FROM usuarios WHERE username = ?",
+                            (user["username"],),
+                        )
                         row = cur.fetchone()
                     user_id = row[0] if row else None
                 if user_id:
                     tok = issue_token(user_id)
-                    set_url_token(tok)
+                    set_url_token(tok)      # URL
+                    set_token_cookie(tok)   # NUEVO: cookie para futuros inicios sin ?auth
 
             st.rerun()
         else:
@@ -184,42 +213,77 @@ else:
 
         if st.session_state.admin_page is None:
             st.subheader("Selecciona una opción:")
-            if st.button("1️⃣ Gestión de jugadores"): st.session_state.admin_page = "jugadores"; st.rerun()
-            if st.button("2️⃣ Gestión de canchas"):   st.session_state.admin_page = "canchas"; st.rerun()
-            if st.button("3️⃣ Gestión de partidos"):  st.session_state.admin_page = "crear_partido"; st.rerun()
-            if st.button("4️⃣ Generar equipos"):      st.session_state.admin_page = "generar_equipos"; st.rerun()
-            if st.button("5️⃣ Registrar resultado"):  st.session_state.admin_page = "registrar_resultado"; st.rerun()
-            if st.button("6️⃣ Historial"):            st.session_state.admin_page = "historial"; st.rerun()
-            if st.button("7️⃣ Administrar usuarios"): st.session_state.admin_page = "usuarios"; st.rerun()
+            if st.button("1️⃣ Gestión de jugadores"):
+                st.session_state.admin_page = "jugadores"
+                st.rerun()
+            if st.button("2️⃣ Gestión de canchas"):
+                st.session_state.admin_page = "canchas"
+                st.rerun()
+            if st.button("3️⃣ Gestión de partidos"):
+                st.session_state.admin_page = "crear_partido"
+                st.rerun()
+            if st.button("4️⃣ Generar equipos"):
+                st.session_state.admin_page = "generar_equipos"
+                st.rerun()
+            if st.button("5️⃣ Registrar resultado"):
+                st.session_state.admin_page = "registrar_resultado"
+                st.rerun()
+            if st.button("6️⃣ Historial"):
+                st.session_state.admin_page = "historial"
+                st.rerun()
+            if st.button("7️⃣ Administrar usuarios"):
+                st.session_state.admin_page = "usuarios"
+                st.rerun()
             if st.button("8️⃣ Temporadas (cambio y cierre) 🗓️", key="btn_admin_temporadas"):
-                st.session_state.admin_page = "temporadas"; st.rerun()
+                st.session_state.admin_page = "temporadas"
+                st.rerun()
             if st.button("9️⃣ Estadísticas globales 📊", key="btn_admin_global_stats"):
-                st.session_state.admin_page = "estadisticas_globales"; st.rerun()
+                st.session_state.admin_page = "estadisticas_globales"
+                st.rerun()
 
         elif st.session_state.admin_page == "jugadores":
-            import jugadores; jugadores.panel_gestion()
+            import jugadores
+
+            jugadores.panel_gestion()
         elif st.session_state.admin_page == "canchas":
-            import canchas; canchas.panel_canchas()
+            import canchas
+
+            canchas.panel_canchas()
         elif st.session_state.admin_page == "crear_partido":
-            import partidos; partidos.panel_creacion()
+            import partidos
+
+            partidos.panel_creacion()
         elif st.session_state.admin_page == "generar_equipos":
-            import equipos; equipos.panel_generacion()
+            import equipos
+
+            equipos.panel_generacion()
         elif st.session_state.admin_page == "registrar_resultado":
-            import cargaresultados; cargaresultados.panel_resultados()
+            import cargaresultados
+
+            cargaresultados.panel_resultados()
         elif st.session_state.admin_page == "historial":
-            import historial; historial.panel_historial()
+            import historial
+
+            historial.panel_historial()
         elif st.session_state.admin_page == "usuarios":
-            import usuarios; usuarios.panel_gestion()
+            import usuarios
+
+            usuarios.panel_gestion()
         elif st.session_state.admin_page == "temporadas":
-            import admin_temporadas; admin_temporadas.panel_temporadas()
+            import admin_temporadas
+
+            admin_temporadas.panel_temporadas()
         elif st.session_state.admin_page == "estadisticas_globales":
-            import admin_stats; admin_stats.panel_estadisticas_globales()
+            import admin_stats
+
+            admin_stats.panel_estadisticas_globales()
 
     # ==================================================
     # PANEL JUGADOR
     # ==================================================
     elif rol == "jugador":
         import jugador_panel
+
         if "jugador_page" not in st.session_state:
             st.session_state.jugador_page = "menu"
 
@@ -234,4 +298,5 @@ else:
         elif st.session_state.jugador_page == "info_topo":
             jugador_panel.panel_info_topo(user)
         else:
-            st.session_state.jugador_page = "menu"; st.rerun()
+            st.session_state.jugador_page = "menu"
+            st.rerun()
