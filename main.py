@@ -18,8 +18,9 @@ from remember import (
 from pathlib import Path
 import base64
 import extra_streamlit_components as stx  # para cookies
+from streamlit_local_storage import LocalStorage  # NUEVO: localStorage
 
-# === NUEVO: nombre y logo de la app ===
+# === Nombre y logo de la app ===
 ICON_PATH = Path(__file__).with_name("assets").joinpath("topologobaja.png")
 
 st.set_page_config(
@@ -31,7 +32,7 @@ st.set_page_config(
 ensure_admin_user()
 
 # ---------------------------
-# CookieManager para remember-me
+# CookieManager para remember-me (PC / general)
 # ---------------------------
 COOKIE_NAME = "auth_token"
 cookie_manager = stx.CookieManager(key="topo_auth_cookie")  # una sola instancia por run
@@ -60,6 +61,21 @@ def clear_token_cookie():
 
 
 # ---------------------------
+# LocalStorage para modo mobile
+# ---------------------------
+local_storage = LocalStorage()  # componente para acceder a localStorage
+LS_TOKEN_KEY = "auth_token_mobile"
+
+
+def is_mobile_mode() -> bool:
+    """
+    Modo 'mobile' activado si la URL trae ?device=mobile.
+    Usá esa URL en Median y en Chrome del celu.
+    """
+    return st.query_params.get("device", "") == "mobile"
+
+
+# ---------------------------
 # UI: logo para pantalla de login
 # ---------------------------
 def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
@@ -76,7 +92,7 @@ def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
         )
 
 # ==================================================
-#  Autologin por token (URL o cookie)
+#  Autologin por token (URL → cookie → localStorage mobile)
 # ==================================================
 ensure_tables()
 if "user" not in st.session_state:
@@ -89,15 +105,28 @@ if "user" not in st.session_state:
             st.session_state.user = user_from_token
             st.rerun()
     else:
-        # Si la URL no tiene token, probamos leerlo de cookie
+        # 1) Intento por cookie (lo que ya funcionaba en PC)
         cookie_token = get_token_from_cookie()
         if cookie_token:
             user_from_token = validate_token(cookie_token)
             if user_from_token:
-                # Reinyectamos el token a la URL para mantener el flujo actual
                 set_url_token(cookie_token)
                 st.session_state.user = user_from_token
                 st.rerun()
+        # 2) Si estamos en modo mobile: intento por localStorage
+        elif is_mobile_mode():
+            try:
+                ls_token = local_storage.getItem(LS_TOKEN_KEY)
+            except Exception:
+                ls_token = None
+
+            if ls_token:
+                user_from_token = validate_token(ls_token)
+                if user_from_token:
+                    # Reinyecto el token en la URL para mantener el flujo actual
+                    set_url_token(ls_token)
+                    st.session_state.user = user_from_token
+                    st.rerun()
 
 # =============================
 # CSS global: ocultar “cadenitas” (anchors de títulos)
@@ -146,6 +175,13 @@ with col_btn:
                         clear_url_token()
                     clear_token_cookie()  # limpiamos la cookie
 
+                    if is_mobile_mode():
+                        # Para mobile limpiamos también localStorage
+                        try:
+                            local_storage.deleteAll()
+                        except Exception:
+                            pass
+
                     for k in list(st.session_state.keys()):
                         if k in ("user", "admin_page", "jugador_page", "flash"):
                             del st.session_state[k]
@@ -164,6 +200,12 @@ with col_btn:
                         revoke_token(tok)
                         clear_url_token()
                     clear_token_cookie()  # limpiamos la cookie
+
+                    if is_mobile_mode():
+                        try:
+                            local_storage.deleteAll()
+                        except Exception:
+                            pass
 
                     for k in list(st.session_state.keys()):
                         if k in ("user", "admin_page", "jugador_page", "flash"):
@@ -208,8 +250,19 @@ if "user" not in st.session_state:
                     user_id = row[0] if row else None
                 if user_id:
                     tok = issue_token(user_id)
-                    set_url_token(tok)      # URL
-                    set_token_cookie(tok)   # COOKIE
+
+                    # Siempre dejamos el token en la URL
+                    set_url_token(tok)
+
+                    # Cookies para PC / general
+                    set_token_cookie(tok)
+
+                    # En modo mobile: también guardamos en localStorage
+                    if is_mobile_mode():
+                        try:
+                            local_storage.setItem(LS_TOKEN_KEY, tok)
+                        except Exception:
+                            pass
 
             st.rerun()
         else:
