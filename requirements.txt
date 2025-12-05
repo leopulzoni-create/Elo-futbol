@@ -7,5 +7,4 @@ pytz
 passlib[bcrypt]==1.7.4
 pillow
 streamlit-calendar==0.5.0
-extra-streamlit-components==0.1.81
-streamlit-local-storage==0.0.25
+extra-streamlit-components
