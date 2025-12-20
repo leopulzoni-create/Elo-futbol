@@ -1,22 +1,22 @@
-from db import get_connection as db_get_connection
+from db import get_connection
 # equipos.py
 import streamlit as st
+import sqlite3
 from datetime import datetime, timedelta
 import unicodedata
 import random
 from collections import defaultdict
-import itertools
 
-DB_NAME = "elo_futbol.db"  # nombre exact
-
+DB_NAME = "elo_futbol.db"  # nombre exacto
 
 # -------------------------
 # Conexión y utilidades
 # -------------------------
 def get_connection():
-    # wrapper por compatibilidad con el resto del proyecto
-    return db_get_connection()
+    from db import get_connection as _gc
+    return _gc()
 
+    return conn
 
 def sin_acentos(texto: str) -> str:
     return "".join(
@@ -24,10 +24,8 @@ def sin_acentos(texto: str) -> str:
         if unicodedata.category(c) != "Mn"
     )
 
-
 # español sin tildes para evitar problemas de render
 DIAS_ES = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
-
 
 def parsear_fecha(fecha_str):
     if fecha_str is None:
@@ -39,7 +37,6 @@ def parsear_fecha(fecha_str):
             continue
     return None
 
-
 def formatear_hora(hora_int):
     """
     Espera un entero tipo HHMM (ej: 1900 -> '19:00').
@@ -50,18 +47,15 @@ def formatear_hora(hora_int):
             return "19:00"
         s = str(int(hora_int))
         if len(s) <= 2:
-            hh = int(s)
-            mm = 0
+            hh = int(s); mm = 0
         else:
             s = s.zfill(4)[-4:]
-            hh = int(s[:2])
-            mm = int(s[2:])
+            hh = int(s[:2]); mm = int(s[2:])
         if not (0 <= hh <= 23 and 0 <= mm <= 59):
             return "19:00"
         return f"{hh:02d}:{mm:02d}"
     except Exception:
         return "19:00"
-
 
 # -------------------------
 # Datos desde la DB
@@ -90,7 +84,6 @@ def obtener_partidos_abiertos():
     conn.close()
     return rows
 
-
 def obtener_jugadores_partido_full(partido_id: int):
     """
     Devuelve lista de dicts con:
@@ -114,7 +107,6 @@ def obtener_jugadores_partido_full(partido_id: int):
     """, (partido_id,))
     rows = cur.fetchall()
     conn.close()
-
     jugadores = [{
         "pj_id": r["pj_id"],
         "jugador_id": r["jugador_id"],
@@ -126,7 +118,6 @@ def obtener_jugadores_partido_full(partido_id: int):
         "camiseta": r["camiseta"],
     } for r in rows]
     return jugadores
-
 
 def obtener_partido_info(partido_id: int):
     """
@@ -153,10 +144,62 @@ def obtener_partido_info(partido_id: int):
 
 
 # -------------------------
+# Jugadores (admin: completar roster)
+# -------------------------
+def obtener_jugadores_activos():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, nombre
+        FROM jugadores
+        WHERE estado IS NULL OR estado = 'activo'
+        ORDER BY nombre ASC
+        """
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def agregar_jugadores_a_partido(partido_id: int, jugador_ids: list[int]):
+    if not jugador_ids:
+        return
+    conn = get_connection()
+    cur = conn.cursor()
+    for jid in jugador_ids:
+        cur.execute(
+            """
+            INSERT INTO partido_jugadores (partido_id, jugador_id, confirmado_por_jugador)
+            VALUES (?, ?, 0)
+            """,
+            (partido_id, jid),
+        )
+    conn.commit()
+    conn.close()
+
+
+def quitar_jugador_de_partido(partido_id: int, jugador_id: int):
+    conn = get_connection()
+    cur = conn.cursor()
+    # Quitar jugador
+    cur.execute(
+        "DELETE FROM partido_jugadores WHERE partido_id = ? AND jugador_id = ?",
+        (partido_id, jugador_id),
+    )
+    # Si ya había equipos/camisetas, los desarmamos para evitar estados inconsistentes
+    cur.execute(
+        "UPDATE partido_jugadores SET equipo = NULL, camiseta = NULL WHERE partido_id = ?",
+        (partido_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+# -------------------------
 # Camisetas
 # -------------------------
 JERSEYS = ("clara", "oscura")
-
 
 def obtener_camiseta_equipo(partido_id: int, equipo: int):
     """
@@ -219,6 +262,14 @@ def intercambiar_camisetas(partido_id: int):
     """
     Alterna 'clara' <-> 'oscura' para todos los jugadores
     de ambos equipos (1 y 2) de ese partido.
+
+    Si el estado inicial es:
+        Equipo 1: clara
+        Equipo 2: oscura
+    después de llamar a esta función queda:
+        Equipo 1: oscura
+        Equipo 2: clara
+    y viceversa.
     """
     conn = get_connection()
     cur = conn.cursor()
@@ -236,37 +287,23 @@ def intercambiar_camisetas(partido_id: int):
     conn.close()
 
 
+
 # -------------------------
 # Bloques (duplas/tríos) a partir de 'bloque'
 # -------------------------
 def construir_bloques(jugadores):
-    """
-    Arma bloques indivisibles a partir de pj.bloque.
-    Normaliza pj.bloque para evitar errores (espacios, "0", etc).
-    """
     grupos = defaultdict(list)
     singles = []
-
     for j in jugadores:
-        b = j.get("bloque", None)
-
-        if b is None:
+        b = j["bloque"]
+        if b is None or b == "":
             singles.append(j)
-            continue
-
-        b_str = str(b).strip()
-        if b_str == "" or b_str == "0":
-            singles.append(j)
-            continue
-
-        grupos[b_str].append(j)
-
+        else:
+            grupos[str(b)].append(j)
     bloques = list(grupos.values())
     bloques.extend([[s] for s in singles])
-
-    bloques.sort(key=lambda bl: (-len(bl), -sum(float(x.get("elo", 0) or 0) for x in bl)))
+    bloques.sort(key=lambda bl: (-len(bl), -sum(x["elo"] for x in bl)))
     return bloques
-
 
 # -------------------------
 # Guardar / limpiar bloques definidos por el admin (auto-guardado)
@@ -277,7 +314,6 @@ def limpiar_bloques(partido_id: int):
     cur.execute("UPDATE partido_jugadores SET bloque = NULL WHERE partido_id = ?", (partido_id,))
     conn.commit()
     conn.close()
-
 
 def set_bloque_por_nombres(partido_id: int, nombres: list, bloque_id: int):
     if not nombres:
@@ -294,22 +330,16 @@ def set_bloque_por_nombres(partido_id: int, nombres: list, bloque_id: int):
     conn.commit()
     conn.close()
 
-
 def _guardar_companeros_si_valido(partido_id, duo1, duo2, trio1, trio2):
-    ok_tamaños = (
-        (len(duo1) in (0, 2)) and (len(duo2) in (0, 2)) and
-        (len(trio1) in (0, 3)) and (len(trio2) in (0, 3))
-    )
+    ok_tamaños = (len(duo1) in (0, 2)) and (len(duo2) in (0, 2)) and (len(trio1) in (0, 3)) and (len(trio2) in (0, 3))
     if not ok_tamaños:
         st.warning("Tamaños inválidos: la dupla debe tener 2 y el trío 3 jugadores.")
         return False
-
     seleccionados = [*duo1, *duo2, *trio1, *trio2]
     solapados = [n for n in seleccionados if seleccionados.count(n) > 1]
     if solapados:
         st.error(f"Jugadores repetidos en grupos: {sorted(set(solapados))}")
         return False
-
     limpiar_bloques(partido_id)
     set_bloque_por_nombres(partido_id, duo1, 1)
     set_bloque_por_nombres(partido_id, duo2, 2)
@@ -317,7 +347,6 @@ def _guardar_companeros_si_valido(partido_id, duo1, duo2, trio1, trio2):
     set_bloque_por_nombres(partido_id, trio2, 4)
     st.toast("Compañeros guardados.", icon="✅")
     return True
-
 
 def ui_definir_bloques(partido_id: int, jugadores_nombres: list):
     st.markdown("### 🧩 Definir compañeros (opcional)")
@@ -334,7 +363,7 @@ def ui_definir_bloques(partido_id: int, jugadores_nombres: list):
         ORDER BY j.nombre
     """, (partido_id,))
     for nombre, b in cur.fetchall():
-        current[str(b).strip()].append(nombre)
+        current[str(b)].append(nombre)
     conn.close()
 
     if "bloques_ui" not in st.session_state:
@@ -356,282 +385,126 @@ def ui_definir_bloques(partido_id: int, jugadores_nombres: list):
 
     col1, col2 = st.columns(2)
     with col1:
-        st.multiselect(
-            "Dupla 1 (2 jugadores)", jugadores_nombres,
-            default=st.session_state.bloques_ui["duo1"], key="duo1_ms",
-            on_change=_on_change_guardar
-        )
-        st.multiselect(
-            "Trío 1 (3 jugadores)", jugadores_nombres,
-            default=st.session_state.bloques_ui["trio1"], key="trio1_ms",
-            on_change=_on_change_guardar
-        )
+        st.multiselect("Dupla 1 (2 jugadores)", jugadores_nombres,
+                       default=st.session_state.bloques_ui["duo1"], key="duo1_ms",
+                       on_change=_on_change_guardar)
+        st.multiselect("Trío 1 (3 jugadores)", jugadores_nombres,
+                       default=st.session_state.bloques_ui["trio1"], key="trio1_ms",
+                       on_change=_on_change_guardar)
     with col2:
-        st.multiselect(
-            "Dupla 2 (2 jugadores)", jugadores_nombres,
-            default=st.session_state.bloques_ui["duo2"], key="duo2_ms",
-            on_change=_on_change_guardar
-        )
-        st.multiselect(
-            "Trío 2 (3 jugadores)", jugadores_nombres,
-            default=st.session_state.bloques_ui["trio2"], key="trio2_ms",
-            on_change=_on_change_guardar
-        )
-
+        st.multiselect("Dupla 2 (2 jugadores)", jugadores_nombres,
+                       default=st.session_state.bloques_ui["duo2"], key="duo2_ms",
+                       on_change=_on_change_guardar)
+        st.multiselect("Trío 2 (3 jugadores)", jugadores_nombres,
+                       default=st.session_state.bloques_ui["trio2"], key="trio2_ms",
+                       on_change=_on_change_guardar)
 
 # -------------------------
-# Validación dura de bloques (nunca permitir romperlos)
+# Heurística de asignación y generación
 # -------------------------
-def _build_block_rules_from_bloques(bloques):
-    """
-    groups: key -> set(nombres) para bloques de tamaño > 1
-    """
-    groups = {}
-    for bi, bl in enumerate(bloques):
-        if len(bl) <= 1:
-            continue
-        names = [p["nombre"] for p in bl]
-        groups[f"G{bi}"] = set(names)
-    return groups
+def evaluar_asignacion(bloques, orden_indices):
+    e1, e2 = [], []
+    s1, s2 = 0.0, 0.0
+    n1, n2 = 0, 0
+    for idx in orden_indices:
+        b = bloques[idx]
+        size = len(b)
+        elo_b = sum(p["elo"] for p in b)
+        if (n1 + size) <= 5 and ((s1 <= s2) or ((n2 + size) > 5)):
+            e1.extend(b); s1 += elo_b; n1 += size
+        else:
+            e2.extend(b); s2 += elo_b; n2 += size
+    return e1, e2, s1, s2
 
+def lista_nombres_10(e1, e2):
+    n1 = [p["nombre"] for p in e1][:5]
+    n2 = [p["nombre"] for p in e2][:5]
+    n1 += [""] * (5 - len(n1))
+    n2 += [""] * (5 - len(n2))
+    return n1 + n2
 
-def _violates_blocks(lista10, groups):
-    """
-    True si algún bloque (dupla/trío) queda partido entre Equipo 1 y Equipo 2.
-    """
-    if not groups:
-        return False
-
-    t1 = set([n for n in lista10[:5] if n])
-    t2 = set([n for n in lista10[5:] if n])
-
-    for members in groups.values():
-        in1 = len(members & t1)
-        in2 = len(members & t2)
-        if in1 > 0 and in2 > 0:
-            return True
-    return False
-
-
-def _filter_options_by_blocks(opciones, bloques):
-    groups = _build_block_rules_from_bloques(bloques)
-    if not groups:
-        return opciones
-
-    out = []
-    seen = set()
-    for lista10 in opciones:
-        if _violates_blocks(lista10, groups):
-            continue
-        key = matchup_key(lista10)  # evita espejadas
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(lista10)
-    return out
-
-
-# -------------------------
-# Keys de match (evitar duplicados y espejadas)
-# -------------------------
 def equipos_set_key(lista10):
-    """
-    Devuelve (team1, team2) como frozensets (ignora orden interno).
-    OJO: team1 y team2 siguen diferenciados por lado (1 vs 2).
-    """
     team1 = frozenset([n for n in lista10[:5] if n])
     team2 = frozenset([n for n in lista10[5:] if n])
     return (team1, team2)
 
+def generar_mejor(bloques, intentos=5000, seed=1):
+    random.seed(seed * 97 + 3)
+    n = len(bloques)
+    indices = list(range(n))
+    best_diff = float("inf")
+    best_list = None
+    for _ in range(intentos):
+        random.shuffle(indices)
+        e1, e2, s1, s2 = evaluar_asignacion(bloques, indices)
+        diff = abs(s1 - s2)
+        if diff < best_diff:
+            best_diff = diff
+            best_list = lista_nombres_10(e1, e2)
+            if best_diff <= 20:
+                break
+    return best_list, best_diff
 
-def matchup_key(lista10):
-    """
-    Key CANÓNICA del match:
-    - ignora orden dentro de cada equipo
-    - ignora swap Equipo1<->Equipo2
-    => evita opciones idénticas o espejadas.
-    """
-    t1, t2 = equipos_set_key(lista10)
-    return frozenset((t1, t2))
-
-
-def _name2elo_from_bloques(bloques):
-    m = {}
-    for b in bloques:
-        for p in b:
-            m[p["nombre"]] = int(p.get("elo", 0) or 0)
-    return m
-
-
-def _diff_real(lista10, name2elo):
+def _pequeno_swap(lista10):
     team1 = [n for n in lista10[:5] if n]
     team2 = [n for n in lista10[5:] if n]
-    elo1 = int(sum(name2elo.get(n, 0) for n in team1))
-    elo2 = int(sum(name2elo.get(n, 0) for n in team2))
-    return abs(elo1 - elo2), elo1, elo2
+    if not team1 or not team2:
+        return None
+    a = random.choice(team1)
+    b = random.choice(team2)
+    n1 = team1[:]; n2 = team2[:]
+    i1 = n1.index(a); i2 = n2.index(b)
+    n1[i1], n2[i2] = n2[i2], n1[i1]
+    n1 += [""] * (5 - len(n1))
+    n2 += [""] * (5 - len(n2))
+    return n1 + n2
 
+def generar_opciones_unicas(bloques, n_opciones=3, max_busquedas=180):
+    opciones, diffs = [], []
+    equipos_vistos = set()
+    seed_base = 11
+    pruebas = 0
 
-# -------------------------
-# Enumeración EXACTA respetando bloques
-# -------------------------
-def _enumerar_opciones_exactas_por_bloques(bloques, name2elo, n_opciones=12, diff_max=350):
-    """
-    Enumeración EXACTA de opciones respetando bloques (duplas/tríos).
-    Devuelve top N por ΔELO real.
+    while len(opciones) < n_opciones and pruebas < max_busquedas:
+        pruebas += 1
+        lista, diff = generar_mejor(bloques, intentos=3000, seed=seed_base + pruebas*13)
+        if not lista:
+            continue
+        t1, t2 = equipos_set_key(lista)
+        if (t1 not in equipos_vistos) and (t2 not in equipos_vistos):
+            opciones.append(lista)
+            diffs.append(diff)
+            equipos_vistos.add(t1); equipos_vistos.add(t2)
 
-    - Cada bloque es indivisible (va entero al Equipo 1 o al 2).
-    - Equipo 1 debe sumar exactamente 5 jugadores.
-    - Para evitar duplicados por swap E1/E2, fijamos un bloque ancla en E1.
-    """
-    if not bloques:
-        return [], []
+    intento_fabricados = 0
+    while len(opciones) < n_opciones and intento_fabricados < 50 and opciones:
+        intento_fabricados += 1
+        base_idx = (intento_fabricados - 1) % len(opciones)
+        cand = _pequeno_swap(opciones[base_idx])
+        if not cand:
+            continue
+        t1, t2 = equipos_set_key(cand)
+        if (t1 not in equipos_vistos) and (t2 not in equipos_vistos):
+            opciones.append(cand)
+            diffs.append((diffs[base_idx] if diffs else 60) + random.randint(10, 30))
+            equipos_vistos.add(t1); equipos_vistos.add(t2)
 
-    sizes = [len(b) for b in bloques]
-    total = sum(sizes)
-    if total != 10:
-        return [], []
+    while len(opciones) < n_opciones and opciones:
+        base = opciones[-1]
+        for _ in range(3):
+            cand = _pequeno_swap(base)
+            if not cand:
+                continue
+            t1, t2 = equipos_set_key(cand)
+            if (t1 not in equipos_vistos) and (t2 not in equipos_vistos):
+                opciones.append(cand)
+                diffs.append((diffs[-1] if diffs else 60) + random.randint(15, 35))
+                equipos_vistos.add(t1); equipos_vistos.add(t2)
+                break
+        if len(opciones) >= n_opciones:
+            break
 
-    def bloque_min_nombre(bl):
-        return min(p["nombre"] for p in bl)
-
-    anchor_i = min(range(len(bloques)), key=lambda i: bloque_min_nombre(bloques[i]))
-    anchor_size = sizes[anchor_i]
-    if anchor_size > 5:
-        return [], []
-
-    need = 5 - anchor_size
-    indices_rest = [i for i in range(len(bloques)) if i != anchor_i]
-
-    bloque_names = []
-    for bl in bloques:
-        ns = [p["nombre"] for p in bl]
-        bloque_names.append(ns)
-
-    candidatos = []  # (diff, elo1, elo2, lista10)
-
-    if need == 0:
-        team1_names = sorted(bloque_names[anchor_i])
-        team2_names = []
-        for i in indices_rest:
-            team2_names.extend(bloque_names[i])
-        team2_names = sorted(team2_names)
-
-        if len(team1_names) != 5 or len(team2_names) != 5:
-            return [], []
-
-        elo1 = int(sum(name2elo.get(n, 0) for n in team1_names))
-        elo2 = int(sum(name2elo.get(n, 0) for n in team2_names))
-        diff = abs(elo1 - elo2)
-        candidatos.append((diff, elo1, elo2, team1_names + team2_names))
-
-    else:
-        for r in range(0, len(indices_rest) + 1):
-            for comb in itertools.combinations(indices_rest, r):
-                if sum(sizes[i] for i in comb) != need:
-                    continue
-
-                team1_indices = {anchor_i, *comb}
-                team2_indices = set(range(len(bloques))) - team1_indices
-
-                team1_names = []
-                for i in team1_indices:
-                    team1_names.extend(bloque_names[i])
-                team2_names = []
-                for i in team2_indices:
-                    team2_names.extend(bloque_names[i])
-
-                if len(team1_names) != 5 or len(team2_names) != 5:
-                    continue
-
-                team1_names = sorted(team1_names)
-                team2_names = sorted(team2_names)
-
-                elo1 = int(sum(name2elo.get(n, 0) for n in team1_names))
-                elo2 = int(sum(name2elo.get(n, 0) for n in team2_names))
-                diff = abs(elo1 - elo2)
-
-                candidatos.append((diff, elo1, elo2, team1_names + team2_names))
-
-    if not candidatos:
-        return [], []
-
-    candidatos.sort(key=lambda x: x[0])
-
-    dentro = [c for c in candidatos if c[0] <= diff_max]
-    base = dentro if len(dentro) >= n_opciones else candidatos
-
-    base = base[:min(n_opciones, len(base))]
-    opciones = [c[3] for c in base]
-    diffs = [c[0] for c in base]
-    return opciones, diffs
-
-
-def generar_opciones_unicas(
-    bloques,
-    n_opciones=12,
-    diff_max=350,
-    max_busquedas=1200,
-    intentos_por_busqueda=3500
-):
-    """
-    Genera hasta n_opciones opciones distintas, priorizando las de menor ΔELO REAL.
-
-    - Si NO hay duplas/tríos (10 singles): calcula TODAS las combinaciones únicas (126) y devuelve top N.
-    - Si SÍ hay duplas/tríos: enumeración EXACTA por bloques y devuelve top N.
-
-    max_busquedas/intentos_por_busqueda quedan por compatibilidad.
-    """
-    if not bloques:
-        return [], []
-
-    name2elo = _name2elo_from_bloques(bloques)
-
-    # 10 singles -> 126 combinaciones únicas
-    if len(bloques) == 10 and all(len(b) == 1 for b in bloques):
-        names = [b[0]["nombre"] for b in bloques]
-        anchor = names[0]
-        others = names[1:]
-
-        candidatos = []
-        for comb in itertools.combinations(others, 4):
-            team1 = [anchor] + list(comb)
-            team2 = [n for n in names if n not in team1]
-
-            team1 = sorted(team1)
-            team2 = sorted(team2)
-
-            elo1 = int(sum(name2elo.get(n, 0) for n in team1))
-            elo2 = int(sum(name2elo.get(n, 0) for n in team2))
-            diff = abs(elo1 - elo2)
-
-            candidatos.append((diff, elo1, elo2, team1 + team2))
-
-        candidatos.sort(key=lambda x: x[0])
-        dentro = [c for c in candidatos if c[0] <= diff_max]
-        base = dentro if len(dentro) >= n_opciones else candidatos
-
-        base = base[:min(n_opciones, len(base))]
-        opciones = [c[3] for c in base]
-        diffs = [c[0] for c in base]
-
-        # blindaje extra (por las dudas)
-        opciones = _filter_options_by_blocks(opciones, bloques)
-        diffs = diffs[:len(opciones)]
-        return opciones, diffs
-
-    # Con bloques -> exacto por bloques
-    opciones, diffs = _enumerar_opciones_exactas_por_bloques(
-        bloques,
-        name2elo,
-        n_opciones=n_opciones,
-        diff_max=diff_max
-    )
-
-    # blindaje extra
-    opciones = _filter_options_by_blocks(opciones, bloques)
-    diffs = diffs[:len(opciones)]
-    return opciones, diffs
-
+    return opciones[:n_opciones], diffs[:n_opciones]
 
 # -------------------------
 # Guardar / borrar equipos elegidos
@@ -640,6 +513,7 @@ def guardar_opcion(partido_id: int, combinacion):
     conn = get_connection()
     cur = conn.cursor()
 
+    # 1) Actualizar equipos de cada jugador
     for idx, nombre in enumerate(combinacion):
         if not nombre:
             continue
@@ -654,6 +528,7 @@ def guardar_opcion(partido_id: int, combinacion):
             (equipo_val, partido_id, nombre),
         )
 
+    # 2) Registrar quién generó estos equipos
     admin_username = "desconocido"
     user = getattr(st.session_state, "user", None)
     try:
@@ -688,7 +563,6 @@ def borrar_equipos_confirmados(partido_id: int):
     conn.commit()
     conn.close()
 
-
 def equipos_ya_confirmados(partido_id: int):
     jugadores = obtener_jugadores_partido_full(partido_id)
     asignados = [j for j in jugadores if j["equipo"] in (1, 2)]
@@ -699,7 +573,6 @@ def equipos_ya_confirmados(partido_id: int):
     elo1 = int(sum(j["elo"] for j in jugadores if j["equipo"] == 1))
     elo2 = int(sum(j["elo"] for j in jugadores if j["equipo"] == 2))
     return True, team1, team2, elo1, elo2
-
 
 # -------------------------
 # Rachas de camisetas (últimos 2 meses, racha actual)
@@ -715,10 +588,12 @@ def calcular_rachas_camiseta(partido_id: int, fecha_ref):
     if fecha_ref is None:
         return []
 
+    # Jugadores de este partido
     jugadores = obtener_jugadores_partido_full(partido_id)
     if not jugadores:
         return []
 
+    # Ventana de 60 días hacia atrás desde la fecha del partido
     fecha_fin = fecha_ref.date()
     fecha_ini = fecha_fin - timedelta(days=60)
 
@@ -730,6 +605,7 @@ def calcular_rachas_camiseta(partido_id: int, fecha_ref):
     for j in jugadores:
         jid = j["jugador_id"]
 
+        # Traemos TODOS los partidos de ese jugador, ordenados por fecha
         cur.execute("""
             SELECT p.fecha, pj.camiseta
             FROM partidos p
@@ -742,6 +618,7 @@ def calcular_rachas_camiseta(partido_id: int, fecha_ref):
         if not rows:
             continue
 
+        # Normalizamos camisetas y filtramos a la ventana [fecha_ini, fecha_fin]
         cams = []
         for fecha_str, cam in rows:
             dt = parsear_fecha(fecha_str)
@@ -765,6 +642,7 @@ def calcular_rachas_camiseta(partido_id: int, fecha_ref):
         if not cams:
             continue
 
+        # Racha actual: contamos desde el partido más reciente hacia atrás
         last_color = None
         count = 0
         for c in reversed(cams):
@@ -786,12 +664,89 @@ def calcular_rachas_camiseta(partido_id: int, fecha_ref):
 
 
 # -------------------------
+# Rachas de camisetas (admin_stats style, últimos 3 meses, racha actual)
+# -------------------------
+def calcular_rachas_camiseta_adminstyle(partido_id: int, min_len: int = 3, months_for_shirt: int = 3):
+    """
+    Replica el criterio usado en admin_stats, pero restringido a los jugadores del partido:
+    - Considera solo partidos con camiseta asignada (clara/oscura)
+    - Filtra a los últimos `months_for_shirt` meses (aprox 30 días c/u) desde HOY
+    - Mide la racha ACTUAL (desde el partido más reciente hacia atrás)
+    - Devuelve solo rachas >= min_len
+    """
+    jugadores = obtener_jugadores_partido_full(partido_id)
+    if not jugadores:
+        return []
+
+    cutoff = datetime.today().date() - timedelta(days=months_for_shirt * 30)
+
+    conn = get_connection()
+    cur = conn.cursor()
+    out = []
+
+    for j in jugadores:
+        jid = j["jugador_id"]
+        cur.execute(
+            """
+            SELECT p.fecha, pj.camiseta
+            FROM partidos p
+            JOIN partido_jugadores pj ON pj.partido_id = p.id
+            WHERE pj.jugador_id = ?
+              AND p.fecha IS NOT NULL
+            ORDER BY date(p.fecha) ASC, p.id ASC
+            """,
+            (jid,),
+        )
+        rows = cur.fetchall()
+        if not rows:
+            continue
+
+        cams = []
+        for fecha_str, cam in rows:
+            dt = parsear_fecha(fecha_str)
+            if not dt:
+                continue
+            if dt.date() < cutoff:
+                continue
+
+            if cam is None:
+                cams.append(None)
+            else:
+                c = str(cam).strip().lower()
+                if c.startswith("clara"):
+                    cams.append("clara")
+                elif c.startswith("osc"):
+                    cams.append("oscura")
+                else:
+                    cams.append(None)
+
+        if not cams:
+            continue
+
+        last = None
+        count = 0
+        for c in reversed(cams):
+            if c and (last is None or c == last):
+                last = c
+                count += 1
+            else:
+                break
+
+        if last and count >= min_len:
+            out.append({"jugador": j["nombre"], "color": last, "racha": count})
+
+    conn.close()
+    out.sort(key=lambda x: (-x["racha"], x["jugador"]))
+    return out
+
+
+# -------------------------
 # Vista jugadores (visual sin ELO)
 # -------------------------
 def render_vista_jugadores(partido_id: int):
     jugadores = obtener_jugadores_partido_full(partido_id)
-    if len([j for j in jugadores if j["equipo"] in (1, 2)]) != 10:
-        return
+    if len([j for j in jugadores if j["equipo"] in (1,2)]) != 10:
+        return  # no render si no están confirmados
 
     team1 = [j["nombre"] for j in jugadores if j["equipo"] == 1]
     team2 = [j["nombre"] for j in jugadores if j["equipo"] == 2]
@@ -803,7 +758,7 @@ def render_vista_jugadores(partido_id: int):
         border:1px solid rgba(0,0,0,0.1);margin-left:8px;
     """
     light_bg = "background:#e0e0e0;color:#222;"
-    dark_bg = "background:#222;color:#fff;"
+    dark_bg  = "background:#222;color:#fff;"
 
     col1, col2 = st.columns(2)
     with col1:
@@ -825,12 +780,11 @@ def render_vista_jugadores(partido_id: int):
         for n in team2:
             st.write(f"- {n}")
 
-
 # -------------------------
 # Selección de partido y panel
 # -------------------------
 def panel_generacion():
-    st.subheader("⚽ Generar equipos")
+    st.subheader("⚽ Generar equipos (3 opciones)")
 
     if st.button("⬅️ Volver al menú principal", key="btn_back_top"):
         st.session_state.admin_page = None
@@ -841,6 +795,7 @@ def panel_generacion():
         st.info("No hay partidos abiertos.")
         return
 
+    # Combo: muestra N° público, guarda id
     opciones_combo = []
     for p in partidos:
         pid = p["id"]
@@ -859,6 +814,7 @@ def panel_generacion():
     sel = st.selectbox("Seleccioná el partido:", [t for _, t, _ in opciones_combo], key="sb_partido")
     partido_id, numero_publico = next((pid, np) for pid, t, np in opciones_combo if t == sel)
 
+    # Encabezado partido con N° público
     np, fecha_dt, hora_str, cancha_nombre = obtener_partido_info(partido_id)
     numero_publico = np if np is not None else numero_publico
     if fecha_dt:
@@ -875,6 +831,7 @@ def panel_generacion():
         unsafe_allow_html=True,
     )
 
+    # Si ya hay equipos confirmados, mostrar...
     confirmado, team1c, team2c, elo1c, elo2c = equipos_ya_confirmados(partido_id)
     if confirmado:
         c1, c2 = st.columns(2)
@@ -894,6 +851,7 @@ def panel_generacion():
         st.divider()
         st.markdown("### 👕 Camisetas")
 
+        # Leemos SIEMPRE desde la base de datos
         cam1 = obtener_camiseta_equipo(partido_id, 1) or "clara"
         cam2 = obtener_camiseta_equipo(partido_id, 2) or "oscura"
 
@@ -903,17 +861,19 @@ def panel_generacion():
         with colj2:
             st.markdown(f"**Equipo 2:** Camiseta {cam2.capitalize()}")
 
+        # Único control: botón para intercambiar y recargar
         if st.button("↔️ Intercambiar camisetas", key="btn_swap_camisetas"):
             intercambiar_camisetas(partido_id)
             st.success("Camisetas intercambiadas.")
             st.rerun()
 
-        avisos = calcular_rachas_camiseta(partido_id, fecha_dt)
+        # Aviso de rachas de camiseta (admin_stats style)
+        avisos = calcular_rachas_camiseta_adminstyle(partido_id, min_len=3, months_for_shirt=3)
         if avisos:
-            st.markdown("#### 📊 Rachas de camiseta (últimos 2 meses)")
-            for a in avisos:
-                color_txt = "clara" if a["camiseta"] == "clara" else "oscura"
-                st.write(f"- {a['nombre']}: {a['veces']} partidos con camiseta {color_txt}")
+            st.markdown("#### 📊 Rachas de camiseta (últimos 3 meses · racha actual)")
+            for it in avisos:
+                label = "Clara ⚪" if it["color"] == "clara" else "Oscura ⬛"
+                st.write(f"- 👕 {it['jugador']}: {label} · {it['racha']} partidos")
 
         st.divider()
         st.markdown("### 👥 Vista para jugadores")
@@ -931,17 +891,62 @@ def panel_generacion():
             st.rerun()
         return
 
+    # Jugadores del partido (y completar faltantes desde acá)
     jugadores = obtener_jugadores_partido_full(partido_id)
-    if not jugadores:
-        st.info("Todavía no hay jugadores en este partido.")
-        return
-
-    st.markdown("**Jugadores inscriptos (10):**")
     names = [j["nombre"] for j in jugadores]
-    if len(names) != 10:
-        st.warning(f"Se requieren exactamente 10 jugadores para generar equipos. Actualmente: {len(names)}.")
-        return
+    ids_asignados = {j["jugador_id"] for j in jugadores}
 
+    st.markdown("### 👥 Jugadores del partido")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Inscriptos:** {len(names)}/10")
+    with c2:
+        if len(names) == 10:
+            st.success("Roster completo ✅")
+        else:
+            st.warning("Faltan jugadores para llegar a 10.")
+
+    # Lista con quitar rápido
+    cols = st.columns(2)
+    for i, j in enumerate(jugadores):
+        icono = "🟢" if j["confirmado"] else "🔵"
+        col = cols[i % 2]
+        with col:
+            st.write(f"{icono} {j['nombre']}")
+            if st.button("Quitar", key=f"eq_quitar_{partido_id}_{j['jugador_id']}_{i}"):
+                quitar_jugador_de_partido(partido_id, j["jugador_id"])
+                st.rerun()
+
+    # Completar cupo
+    faltan = max(0, 10 - len(names))
+    if faltan > 0:
+        st.divider()
+        st.markdown("### ➕ Completar roster (admin)")
+        st.caption("La mayoría se anota sola. Acá solo completás los faltantes.")
+
+        activos = obtener_jugadores_activos()
+        disponibles = [a for a in activos if a["id"] not in ids_asignados]
+        map_nombre_id = {a["nombre"]: a["id"] for a in disponibles}
+
+        seleccion = st.multiselect(
+            f"Seleccioná hasta {faltan} jugador(es)",
+            options=list(map_nombre_id.keys()),
+            key=f"eq_ms_add_{partido_id}",
+        )
+
+        if len(seleccion) > faltan:
+            st.warning(f"Solo podés agregar {faltan}.")
+            seleccion = seleccion[:faltan]
+
+        if st.button("Agregar al partido", disabled=(len(seleccion) == 0), key=f"eq_btn_add_{partido_id}"):
+            agregar_jugadores_a_partido(partido_id, [map_nombre_id[n] for n in seleccion])
+            st.rerun()
+
+    # Si no hay 10, no mostramos la generación
+    if len(names) != 10:
+        st.stop()
+
+    # Render en 2 columnas cuando ya está completo
     col_a, col_b = st.columns(2)
     with col_a:
         for n in names[:5]:
@@ -950,96 +955,58 @@ def panel_generacion():
         for n in names[5:10]:
             st.write(f"- {n}")
 
+    # Compañeros (duplas/tríos)
     ui_definir_bloques(partido_id, names)
 
+    # Reconstruir bloques
     jugadores = obtener_jugadores_partido_full(partido_id)
     bloques = construir_bloques(jugadores)
 
-    # =========================
-    # Generar opciones (paginadas 3 en 3)
-    # =========================
-    cgen, calt = st.columns([1, 1])
+    # Generar 3 opciones
+    if st.button("🎲 Generar 3 opciones balanceadas", key="btn_generar_opciones"):
+        with st.spinner("Calculando combinaciones distintas..."):
+            opts, diffs = generar_opciones_unicas(bloques, n_opciones=3, max_busquedas=240)
+            if not opts or len(opts) < 3:
+                st.warning("Se forzaron opciones alternativas para llegar a 3. Verificá la diversidad.")
+            st.session_state._equipos_opciones = opts
+            st.session_state._equipos_diffs = diffs
+            st.session_state._equipos_actual = None
 
-    with cgen:
-        if st.button("🎲 Generar opciones balanceadas", key="btn_generar_opciones"):
-            with st.spinner("Buscando hasta 12 alternativas (ordenadas por ΔELO real)..."):
-                opts, diffs = generar_opciones_unicas(
-                    bloques,
-                    n_opciones=12,
-                    diff_max=350,
-                )
-                if not opts:
-                    st.error("No se pudieron generar opciones. Revisá duplas/tríos o que haya 10 jugadores.")
-                    return
-
-                st.session_state._equipos_opciones = opts
-                st.session_state._equipos_diffs = diffs
-                st.session_state._equipos_actual = None
-                st.session_state._equipos_page = 0
-                st.rerun()
-
-    with calt:
-        if st.button("➕ Más alternativas", key="btn_mas_alternativas"):
-            if st.session_state.get("_equipos_opciones"):
-                opts = st.session_state._equipos_opciones
-                pages = max(1, (len(opts) + 2) // 3)  # ceil(len/3)
-                st.session_state._equipos_page = (st.session_state.get("_equipos_page", 0) + 1) % pages
-                st.session_state._equipos_actual = None
-                st.rerun()
-
-    # =========================
-    # Mostrar opciones (paginadas)
-    # =========================
-    if st.session_state.get("_equipos_opciones"):
+    # Mostrar opciones y elegir
+    if "_equipos_opciones" in st.session_state and st.session_state._equipos_opciones:
         opts = st.session_state._equipos_opciones
-
-        page = st.session_state.get("_equipos_page", 0)
-        pages = max(1, (len(opts) + 2) // 3)
-        page = page % pages
-
-        start = page * 3
-        end = start + 3
-        opts_page = opts[start:end]
-
-        st.caption(f"Página: **{page + 1}/{pages}** ({start + 1}–{min(end, len(opts))} de {len(opts)})")
-
+        diffs = st.session_state._equipos_diffs
         cols = st.columns(3)
         chosen_idx = None
 
         elo_map = {j["nombre"]: j["elo"] for j in jugadores}
 
-        for local_i, col in enumerate(cols[:len(opts_page)]):
-            global_i = start + local_i
-            lista10 = opts_page[local_i]
+        for i, col in enumerate(cols[:len(opts)]):
+            col.markdown(f"### Opción {i+1}")
+            col.write(f"ΔELO ≈ {int(diffs[i])}")
+            lista = opts[i]
 
-            t1 = [n for n in lista10[:5] if n]
-            t2 = [n for n in lista10[5:] if n]
-            elo1 = int(sum(elo_map.get(n, 0) for n in t1))
-            elo2 = int(sum(elo_map.get(n, 0) for n in t2))
-            delta = abs(elo1 - elo2)
+            team1 = [n for n in lista[:5] if n]
+            team2 = [n for n in lista[5:] if n]
+            elo1 = int(sum(elo_map.get(n, 0) for n in team1))
+            elo2 = int(sum(elo_map.get(n, 0) for n in team2))
 
-            col.markdown(f"### Opción {global_i + 1}")
-            col.write(f"ΔELO = {delta}")
-            col.caption(f"Equipo 1: {elo1} · Equipo 2: {elo2}")
+            col.markdown(f"**Equipo 1 ({elo1} ELO)**")
+            for nombre in team1:
+                col.write(f"- {nombre}")
 
-            col.markdown("**Equipo 1**")
-            for n in t1:
-                col.write(f"- {n}")
+            col.markdown(f"**Equipo 2 ({elo2} ELO)**")
+            for nombre in team2:
+                col.write(f"- {nombre}")
 
-            col.markdown("**Equipo 2**")
-            for n in t2:
-                col.write(f"- {n}")
-
-            if col.button(f"Seleccionar Opción {global_i + 1}", key=f"btn_sel_opt_{global_i + 1}"):
-                chosen_idx = global_i
+            if col.button(f"Seleccionar Opción {i+1}", key=f"btn_sel_opt_{i+1}"):
+                chosen_idx = i
 
         if chosen_idx is not None:
             st.session_state._equipos_actual = opts[chosen_idx][:]
-            st.success(f"Opción {chosen_idx + 1} cargada. Podés intercambiar jugadores antes de confirmar.")
+            st.success(f"Opción {chosen_idx+1} cargada. Podés intercambiar jugadores antes de confirmar.")
 
-    # =========================
-    # Ajuste manual + confirmar (blindado a bloques)
-    # =========================
+    # Ajuste manual y confirmación
     if st.session_state.get("_equipos_actual"):
         st.markdown("### ✍️ Ajuste manual")
 
@@ -1063,19 +1030,10 @@ def panel_generacion():
 
         if st.button("↔️ Intercambiar", key="btn_swap"):
             if a != "(ninguno)" and b != "(ninguno)":
-                t1 = team1[:]
-                t2 = team2[:]
-                i1 = t1.index(a)
-                i2 = t2.index(b)
-                t1[i1], t2[i2] = t2[i2], t1[i1]
-                candidato = t1 + t2
-
-                groups = _build_block_rules_from_bloques(bloques)
-                if groups and _violates_blocks(candidato, groups):
-                    st.error("Ese intercambio rompe una dupla/trío. Elegí otro swap.")
-                else:
-                    st.session_state._equipos_actual = candidato
-                    st.rerun()
+                i1 = team1.index(a)
+                i2 = team2.index(b)
+                team1[i1], team2[i2] = team2[i2], team1[i1]
+                st.session_state._equipos_actual = team1 + team2
 
         equipo_actual = st.session_state._equipos_actual
         team1 = equipo_actual[:5]
@@ -1087,24 +1045,16 @@ def panel_generacion():
 
         if st.button("✅ Confirmar equipos", key="btn_confirmar_equipos"):
             if len([n for n in team1 if n]) == 5 and len([n for n in team2 if n]) == 5:
-                # Validación final por si acaso
-                groups = _build_block_rules_from_bloques(bloques)
-                if groups and _violates_blocks(team1 + team2, groups):
-                    st.error("No se puede confirmar: los equipos rompen una dupla/trío.")
-                else:
-                    guardar_opcion(partido_id, equipo_actual)
-
-                    if obtener_camiseta_equipo(partido_id, 1) is None:
-                        asignar_camiseta_equipo(partido_id, 1, "clara")
-                    if obtener_camiseta_equipo(partido_id, 2) is None:
-                        asignar_camiseta_equipo(partido_id, 2, "oscura")
-
-                    st.success("Equipos confirmados y guardados en la base de datos.")
-                    st.session_state._equipos_opciones = None
-                    st.session_state._equipos_diffs = None
-                    st.session_state._equipos_actual = None
-                    st.session_state._equipos_page = 0
-                    st.rerun()
+                guardar_opcion(partido_id, equipo_actual)
+                if obtener_camiseta_equipo(partido_id, 1) is None:
+                    asignar_camiseta_equipo(partido_id, 1, "clara")
+                if obtener_camiseta_equipo(partido_id, 2) is None:
+                    asignar_camiseta_equipo(partido_id, 2, "oscura")
+                st.success("Equipos confirmados y guardados en la base de datos.")
+                st.session_state._equipos_opciones = None
+                st.session_state._equipos_diffs = None
+                st.session_state._equipos_actual = None
+                st.rerun()
             else:
                 st.error("Cada equipo debe tener exactamente 5 jugadores.")
 

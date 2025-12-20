@@ -185,6 +185,14 @@ def panel_resultados():
         st.divider()
         st.markdown("### Parámetros del resultado")
 
+        def _sync_dif():
+            r = st.session_state.get("rb_resultado")
+            if r and "Empate" in r:
+                st.session_state["ni_dif_goles"] = 0
+            else:
+                if st.session_state.get("ni_dif_goles", 0) == 0:
+                    st.session_state["ni_dif_goles"] = 1
+
         resultado = st.radio(
             "Resultado",
             [
@@ -193,24 +201,30 @@ def panel_resultados():
                 "Empate",
             ],
             key="rb_resultado",
-        )
-        dif_goles = st.number_input(
-            "Diferencia de goles", min_value=0, step=1, key="ni_dif_goles"
-        )
-        oficial = st.radio(
-            "Tipo de partido", ["Oficial", "Amistoso"], key="rb_oficial"
+            on_change=_sync_dif,
         )
 
-        # Avisos de coherencia (soft)
-        if "Empate" in resultado and dif_goles != 0:
-            st.warning(
-                "Para empate, la diferencia de goles debe ser 0. "
-                "Se ajustará automáticamente al registrar."
+        is_empate_ui = "Empate" in resultado
+
+        if is_empate_ui:
+            dif_goles = st.number_input(
+                "Diferencia de goles",
+                min_value=0,
+                max_value=0,
+                value=0,
+                step=1,
+                key="ni_dif_goles",
+                disabled=True,
             )
-        elif "Empate" not in resultado and dif_goles == 0:
-            st.warning(
-                "Si hay ganador, la diferencia de goles debería ser > 0."
+        else:
+            dif_goles = st.number_input(
+                "Diferencia de goles",
+                min_value=1,
+                step=1,
+                key="ni_dif_goles",
             )
+
+        oficial = st.radio("Tipo de partido", ["Oficial", "Amistoso"], key="rb_oficial")
 
         # BOTÓN principal
         clicked = st.button("✅ Registrar resultado", key="btn_registrar_resultado")
@@ -424,4 +438,3 @@ def panel_resultados():
     if st.button("⬅️ Volver al menú principal", key="btn_volver_menu_resultados"):
         st.session_state.admin_page = None
         st.rerun()
-
