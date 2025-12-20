@@ -185,6 +185,10 @@ def panel_resultados():
         st.divider()
         st.markdown("### Parámetros del resultado")
 
+        # ====== FIX WARNING: no mezclar value= con session_state para el mismo key ======
+        if "ni_dif_goles" not in st.session_state:
+            st.session_state["ni_dif_goles"] = 1
+
         def _sync_dif():
             r = st.session_state.get("rb_resultado")
             if r and "Empate" in r:
@@ -204,6 +208,9 @@ def panel_resultados():
             on_change=_sync_dif,
         )
 
+        # Asegura consistencia antes de crear el number_input (evita 0 con min_value=1)
+        _sync_dif()
+
         is_empate_ui = "Empate" in resultado
 
         if is_empate_ui:
@@ -211,7 +218,6 @@ def panel_resultados():
                 "Diferencia de goles",
                 min_value=0,
                 max_value=0,
-                value=0,
                 step=1,
                 key="ni_dif_goles",
                 disabled=True,
