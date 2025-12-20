@@ -9,6 +9,7 @@ import itertools
 
 DB_NAME = "elo_futbol.db"  # nombre exact
 
+
 # -------------------------
 # Conexión y utilidades
 # -------------------------
@@ -239,18 +240,31 @@ def intercambiar_camisetas(partido_id: int):
 # Bloques (duplas/tríos) a partir de 'bloque'
 # -------------------------
 def construir_bloques(jugadores):
+    """
+    Arma bloques indivisibles a partir de pj.bloque.
+    Normaliza pj.bloque para evitar errores (espacios, "0", etc).
+    """
     grupos = defaultdict(list)
     singles = []
+
     for j in jugadores:
-        b = j["bloque"]
-        if b is None or b == "":
+        b = j.get("bloque", None)
+
+        if b is None:
             singles.append(j)
-        else:
-            grupos[str(b)].append(j)
+            continue
+
+        b_str = str(b).strip()
+        if b_str == "" or b_str == "0":
+            singles.append(j)
+            continue
+
+        grupos[b_str].append(j)
 
     bloques = list(grupos.values())
     bloques.extend([[s] for s in singles])
-    bloques.sort(key=lambda bl: (-len(bl), -sum(x["elo"] for x in bl)))
+
+    bloques.sort(key=lambda bl: (-len(bl), -sum(float(x.get("elo", 0) or 0) for x in bl)))
     return bloques
 
 
@@ -320,7 +334,7 @@ def ui_definir_bloques(partido_id: int, jugadores_nombres: list):
         ORDER BY j.nombre
     """, (partido_id,))
     for nombre, b in cur.fetchall():
-        current[str(b)].append(nombre)
+        current[str(b).strip()].append(nombre)
     conn.close()
 
     if "bloques_ui" not in st.session_state:
@@ -366,64 +380,60 @@ def ui_definir_bloques(partido_id: int, jugadores_nombres: list):
 
 
 # -------------------------
-# Heurística de asignación y generación
+# Validación dura de bloques (nunca permitir romperlos)
 # -------------------------
-def evaluar_asignacion(bloques, orden_indices):
-    e1, e2 = [], []
-    s1, s2 = 0.0, 0.0
-    n1, n2 = 0, 0
-    for idx in orden_indices:
-        b = bloques[idx]
-        size = len(b)
-        elo_b = sum(p["elo"] for p in b)
-        if (n1 + size) <= 5 and ((s1 <= s2) or ((n2 + size) > 5)):
-            e1.extend(b)
-            s1 += elo_b
-            n1 += size
-        else:
-            e2.extend(b)
-            s2 += elo_b
-            n2 += size
-    return e1, e2, s1, s2
-
-
-def lista_nombres_10(e1, e2):
-    n1 = [p["nombre"] for p in e1][:5]
-    n2 = [p["nombre"] for p in e2][:5]
-    n1 += [""] * (5 - len(n1))
-    n2 += [""] * (5 - len(n2))
-    return n1 + n2
-
-
-def generar_mejor(bloques, intentos=5000, seed=1):
+def _build_block_rules_from_bloques(bloques):
     """
-    Busca una asignación que minimice la diferencia de ELO total.
-    Devuelve (lista10, best_diff_aprox).
+    groups: key -> set(nombres) para bloques de tamaño > 1
     """
-    random.seed(seed * 97 + 3)
-
-    n = len(bloques)
-    indices = list(range(n))
-
-    best_diff = float("inf")
-    best_list = None
-
-    for _ in range(intentos):
-        random.shuffle(indices)
-        e1, e2, s1, s2 = evaluar_asignacion(bloques, indices)
-        diff = abs(s1 - s2)
-
-        if diff < best_diff:
-            best_diff = diff
-            best_list = lista_nombres_10(e1, e2)
-
-            # corte temprano suave
-            if best_diff <= 20:
-                break
-
-    return best_list, best_diff
+    groups = {}
+    for bi, bl in enumerate(bloques):
+        if len(bl) <= 1:
+            continue
+        names = [p["nombre"] for p in bl]
+        groups[f"G{bi}"] = set(names)
+    return groups
 
 
+def _violates_blocks(lista10, groups):
+    """
+    True si algún bloque (dupla/trío) queda partido entre Equipo 1 y Equipo 2.
+    """
+    if not groups:
+        return False
+
+    t1 = set([n for n in lista10[:5] if n])
+    t2 = set([n for n in lista10[5:] if n])
+
+    for members in groups.values():
+        in1 = len(members & t1)
+        in2 = len(members & t2)
+        if in1 > 0 and in2 > 0:
+            return True
+    return False
+
+
+def _filter_options_by_blocks(opciones, bloques):
+    groups = _build_block_rules_from_bloques(bloques)
+    if not groups:
+        return opciones
+
+    out = []
+    seen = set()
+    for lista10 in opciones:
+        if _violates_blocks(lista10, groups):
+            continue
+        key = matchup_key(lista10)  # evita espejadas
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(lista10)
+    return out
+
+
+# -------------------------
+# Keys de match (evitar duplicados y espejadas)
+# -------------------------
 def equipos_set_key(lista10):
     """
     Devuelve (team1, team2) como frozensets (ignora orden interno).
@@ -461,6 +471,9 @@ def _diff_real(lista10, name2elo):
     return abs(elo1 - elo2), elo1, elo2
 
 
+# -------------------------
+# Enumeración EXACTA respetando bloques
+# -------------------------
 def _enumerar_opciones_exactas_por_bloques(bloques, name2elo, n_opciones=12, diff_max=350):
     """
     Enumeración EXACTA de opciones respetando bloques (duplas/tríos).
@@ -478,8 +491,6 @@ def _enumerar_opciones_exactas_por_bloques(bloques, name2elo, n_opciones=12, dif
     if total != 10:
         return [], []
 
-    # --- elegir bloque ancla: el que contenga el nombre lexicográficamente menor ---
-    # (esto hace canónica la elección y evita duplicados espejados)
     def bloque_min_nombre(bl):
         return min(p["nombre"] for p in bl)
 
@@ -491,32 +502,22 @@ def _enumerar_opciones_exactas_por_bloques(bloques, name2elo, n_opciones=12, dif
     need = 5 - anchor_size
     indices_rest = [i for i in range(len(bloques)) if i != anchor_i]
 
-    # --- precomputar nombres por bloque y elo por bloque ---
     bloque_names = []
-    bloque_elo = []
     for bl in bloques:
         ns = [p["nombre"] for p in bl]
         bloque_names.append(ns)
-        bloque_elo.append(int(sum(name2elo.get(n, 0) for n in ns)))
 
-    # --- enumerar combinaciones de bloques que completen el equipo 1 ---
     candidatos = []  # (diff, elo1, elo2, lista10)
 
-    # caso especial: anchor ya completa 5
     if need == 0:
-        team1_idx = {anchor_i}
-        team2_idx = set(indices_rest)
-
-        team1_names = []
-        for i in [anchor_i]:
-            team1_names.extend(bloque_names[i])
+        team1_names = sorted(bloque_names[anchor_i])
         team2_names = []
         for i in indices_rest:
             team2_names.extend(bloque_names[i])
-
-        # Por prolijidad: ordenar nombres dentro de equipo (opcional)
-        team1_names = sorted(team1_names)
         team2_names = sorted(team2_names)
+
+        if len(team1_names) != 5 or len(team2_names) != 5:
+            return [], []
 
         elo1 = int(sum(name2elo.get(n, 0) for n in team1_names))
         elo2 = int(sum(name2elo.get(n, 0) for n in team2_names))
@@ -524,8 +525,6 @@ def _enumerar_opciones_exactas_por_bloques(bloques, name2elo, n_opciones=12, dif
         candidatos.append((diff, elo1, elo2, team1_names + team2_names))
 
     else:
-        # Enumeración de subsets del resto que sumen 'need'
-        # len(bloques) es chica (como mucho 10 singles, o menos con bloques), esto es rápido.
         for r in range(0, len(indices_rest) + 1):
             for comb in itertools.combinations(indices_rest, r):
                 if sum(sizes[i] for i in comb) != need:
@@ -558,7 +557,6 @@ def _enumerar_opciones_exactas_por_bloques(bloques, name2elo, n_opciones=12, dif
 
     candidatos.sort(key=lambda x: x[0])
 
-    # preferimos <= diff_max si hay suficientes; si no, devolvemos igual el top
     dentro = [c for c in candidatos if c[0] <= diff_max]
     base = dentro if len(dentro) >= n_opciones else candidatos
 
@@ -579,25 +577,22 @@ def generar_opciones_unicas(
     Genera hasta n_opciones opciones distintas, priorizando las de menor ΔELO REAL.
 
     - Si NO hay duplas/tríos (10 singles): calcula TODAS las combinaciones únicas (126) y devuelve top N.
-    - Si SÍ hay duplas/tríos: ahora también hace enumeración EXACTA por bloques y devuelve top N.
+    - Si SÍ hay duplas/tríos: enumeración EXACTA por bloques y devuelve top N.
 
-    Parámetros max_busquedas/intentos_por_busqueda quedan por compatibilidad,
-    pero ya no se usan en el camino exacto.
+    max_busquedas/intentos_por_busqueda quedan por compatibilidad.
     """
     if not bloques:
         return [], []
 
     name2elo = _name2elo_from_bloques(bloques)
 
-    # ============
-    # Caso 10 singles: enumeración exacta (126)
-    # ============
+    # 10 singles -> 126 combinaciones únicas
     if len(bloques) == 10 and all(len(b) == 1 for b in bloques):
         names = [b[0]["nombre"] for b in bloques]
         anchor = names[0]
         others = names[1:]
 
-        candidatos = []  # (diff, elo1, elo2, lista10)
+        candidatos = []
         for comb in itertools.combinations(others, 4):
             team1 = [anchor] + list(comb)
             team2 = [n for n in names if n not in team1]
@@ -612,24 +607,30 @@ def generar_opciones_unicas(
             candidatos.append((diff, elo1, elo2, team1 + team2))
 
         candidatos.sort(key=lambda x: x[0])
-
         dentro = [c for c in candidatos if c[0] <= diff_max]
         base = dentro if len(dentro) >= n_opciones else candidatos
 
         base = base[:min(n_opciones, len(base))]
         opciones = [c[3] for c in base]
         diffs = [c[0] for c in base]
+
+        # blindaje extra (por las dudas)
+        opciones = _filter_options_by_blocks(opciones, bloques)
+        diffs = diffs[:len(opciones)]
         return opciones, diffs
 
-    # ============
-    # Caso con bloques (duplas/tríos): enumeración exacta
-    # ============
-    return _enumerar_opciones_exactas_por_bloques(
+    # Con bloques -> exacto por bloques
+    opciones, diffs = _enumerar_opciones_exactas_por_bloques(
         bloques,
         name2elo,
         n_opciones=n_opciones,
         diff_max=diff_max
     )
+
+    # blindaje extra
+    opciones = _filter_options_by_blocks(opciones, bloques)
+    diffs = diffs[:len(opciones)]
+    return opciones, diffs
 
 
 # -------------------------
@@ -639,7 +640,6 @@ def guardar_opcion(partido_id: int, combinacion):
     conn = get_connection()
     cur = conn.cursor()
 
-    # 1) Actualizar equipos de cada jugador
     for idx, nombre in enumerate(combinacion):
         if not nombre:
             continue
@@ -654,7 +654,6 @@ def guardar_opcion(partido_id: int, combinacion):
             (equipo_val, partido_id, nombre),
         )
 
-    # 2) Registrar quién generó estos equipos
     admin_username = "desconocido"
     user = getattr(st.session_state, "user", None)
     try:
@@ -962,14 +961,12 @@ def panel_generacion():
     cgen, calt = st.columns([1, 1])
 
     with cgen:
-        if st.button("🎲 Generar 3 opciones balanceadas", key="btn_generar_opciones"):
+        if st.button("🎲 Generar opciones balanceadas", key="btn_generar_opciones"):
             with st.spinner("Buscando hasta 12 alternativas (ordenadas por ΔELO real)..."):
                 opts, diffs = generar_opciones_unicas(
                     bloques,
                     n_opciones=12,
                     diff_max=350,
-                    max_busquedas=1200,
-                    intentos_por_busqueda=3500
                 )
                 if not opts:
                     st.error("No se pudieron generar opciones. Revisá duplas/tríos o que haya 10 jugadores.")
@@ -978,7 +975,7 @@ def panel_generacion():
                 st.session_state._equipos_opciones = opts
                 st.session_state._equipos_diffs = diffs
                 st.session_state._equipos_actual = None
-                st.session_state._equipos_page = 0  # siempre vuelve a las más parejas
+                st.session_state._equipos_page = 0
                 st.rerun()
 
     with calt:
@@ -1041,7 +1038,7 @@ def panel_generacion():
             st.success(f"Opción {chosen_idx + 1} cargada. Podés intercambiar jugadores antes de confirmar.")
 
     # =========================
-    # Ajuste manual + confirmar
+    # Ajuste manual + confirmar (blindado a bloques)
     # =========================
     if st.session_state.get("_equipos_actual"):
         st.markdown("### ✍️ Ajuste manual")
@@ -1066,11 +1063,19 @@ def panel_generacion():
 
         if st.button("↔️ Intercambiar", key="btn_swap"):
             if a != "(ninguno)" and b != "(ninguno)":
-                i1 = team1.index(a)
-                i2 = team2.index(b)
-                team1[i1], team2[i2] = team2[i2], team1[i1]
-                st.session_state._equipos_actual = team1 + team2
-                st.rerun()
+                t1 = team1[:]
+                t2 = team2[:]
+                i1 = t1.index(a)
+                i2 = t2.index(b)
+                t1[i1], t2[i2] = t2[i2], t1[i1]
+                candidato = t1 + t2
+
+                groups = _build_block_rules_from_bloques(bloques)
+                if groups and _violates_blocks(candidato, groups):
+                    st.error("Ese intercambio rompe una dupla/trío. Elegí otro swap.")
+                else:
+                    st.session_state._equipos_actual = candidato
+                    st.rerun()
 
         equipo_actual = st.session_state._equipos_actual
         team1 = equipo_actual[:5]
@@ -1082,19 +1087,24 @@ def panel_generacion():
 
         if st.button("✅ Confirmar equipos", key="btn_confirmar_equipos"):
             if len([n for n in team1 if n]) == 5 and len([n for n in team2 if n]) == 5:
-                guardar_opcion(partido_id, equipo_actual)
+                # Validación final por si acaso
+                groups = _build_block_rules_from_bloques(bloques)
+                if groups and _violates_blocks(team1 + team2, groups):
+                    st.error("No se puede confirmar: los equipos rompen una dupla/trío.")
+                else:
+                    guardar_opcion(partido_id, equipo_actual)
 
-                if obtener_camiseta_equipo(partido_id, 1) is None:
-                    asignar_camiseta_equipo(partido_id, 1, "clara")
-                if obtener_camiseta_equipo(partido_id, 2) is None:
-                    asignar_camiseta_equipo(partido_id, 2, "oscura")
+                    if obtener_camiseta_equipo(partido_id, 1) is None:
+                        asignar_camiseta_equipo(partido_id, 1, "clara")
+                    if obtener_camiseta_equipo(partido_id, 2) is None:
+                        asignar_camiseta_equipo(partido_id, 2, "oscura")
 
-                st.success("Equipos confirmados y guardados en la base de datos.")
-                st.session_state._equipos_opciones = None
-                st.session_state._equipos_diffs = None
-                st.session_state._equipos_actual = None
-                st.session_state._equipos_page = 0
-                st.rerun()
+                    st.success("Equipos confirmados y guardados en la base de datos.")
+                    st.session_state._equipos_opciones = None
+                    st.session_state._equipos_diffs = None
+                    st.session_state._equipos_actual = None
+                    st.session_state._equipos_page = 0
+                    st.rerun()
             else:
                 st.error("Cada equipo debe tener exactamente 5 jugadores.")
 
