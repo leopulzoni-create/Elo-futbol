@@ -286,7 +286,7 @@ def panel_gestion():
                         "Grupos": j["grupos"] or "—",
                     }
                 )
-            st.dataframe(data, use_container_width=True, hide_index=True)
+            st.dataframe(data, width='stretch', hide_index=True)
             st.caption("Ordenado por estado y nombre. Podés usar el buscador de la esquina para filtrar.")
         else:
             st.info("No hay jugadores cargados todavía.")

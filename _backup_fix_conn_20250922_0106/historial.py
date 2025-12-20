@@ -258,14 +258,14 @@ def _render_month(year: int, month: int, key_prefix: str):
                         # Hueco con el mismo alto que un botón normal
                         st.markdown('<div class="day-empty">', unsafe_allow_html=True)
                         st.button(" ", key="%s_blank_%d_%02d_%d_%d" % (key_prefix, year, month, w_idx, d_idx),
-                                  disabled=True, use_container_width=True)
+                                  disabled=True, width='stretch')
                         st.markdown('</div>', unsafe_allow_html=True)
                         continue
 
                     has_match = day in days_with
                     label = ("%02d 🔵" % day) if has_match else ("%02d ⚪" % day)
                     btn_key = "%s_day_%d_%02d_%02d" % (key_prefix, year, month, day)
-                    clicked = st.button(label, key=btn_key, use_container_width=True)
+                    clicked = st.button(label, key=btn_key, width='stretch')
                     if clicked:
                         st.session_state["hist_cal_selected_date"] = "%d-%02d-%02d" % (year, month, day)
 
@@ -358,7 +358,7 @@ def _render_tab_historial_elo():
     else:
         df = df.sort_values(by=["fecha", "historial_id"], ascending=[True, True]).reset_index(drop=True)
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
     st.caption("Tip: usa el buscador de la esquina superior derecha de la tabla para filtrar por texto.")
 
 # =========================

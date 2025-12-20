@@ -423,13 +423,13 @@ def _menu_links_column():
 
     st.markdown('<div class="menu-col">', unsafe_allow_html=True)
 
-    if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles", use_container_width=True):
+    if st.button("Ver partidos disponibles ⚽", key="btn_partidos_disponibles", width='stretch'):
         st.session_state["jugador_page"] = "partidos"; st.rerun()
 
-    if st.button("Ver mis estadísticas 📊", key="btn_mis_stats", use_container_width=True):
+    if st.button("Ver mis estadísticas 📊", key="btn_mis_stats", width='stretch'):
         st.session_state["jugador_page"] = "stats"; st.rerun()
 
-    if st.button("Objetivos, reglas y etcéteras 🎯", key="btn_info_topo", use_container_width=True):
+    if st.button("Objetivos, reglas y etcéteras 🎯", key="btn_info_topo", width='stretch'):
         st.session_state["jugador_page"] = "info_topo"; st.rerun()
 
 

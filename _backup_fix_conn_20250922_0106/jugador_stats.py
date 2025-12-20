@@ -635,7 +635,7 @@ def panel_mis_estadisticas(user):
         ax.set_xlabel("Fecha")
         ax.set_title("Evolución en el tiempo")
         plt.tight_layout()
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width='stretch')
     else:
         st.info("Aún no hay historial suficiente para graficar la tendencia en esta temporada.")
 

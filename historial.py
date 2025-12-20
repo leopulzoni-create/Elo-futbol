@@ -647,7 +647,7 @@ def _render_tab_historial_elo():
             by=["fecha", "historial_id"], ascending=[True, True]
         ).reset_index(drop=True)
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
     st.caption(
         "Tip: usa el buscador de la esquina superior derecha de la tabla para filtrar por texto."
     )

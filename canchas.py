@@ -207,7 +207,7 @@ def panel_canchas():
                     "id": "ID (interno)",
                 }
             )[["N°", "Nombre", "Dirección", "Foto", "ID (interno)"]]
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width='stretch', hide_index=True)
             st.caption("El número público es consecutivo y reutiliza huecos al crear nuevas canchas.")
         else:
             st.info("No hay canchas cargadas todavía.")

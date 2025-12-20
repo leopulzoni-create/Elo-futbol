@@ -602,7 +602,7 @@ def panel_admin_stats():
     # ============ Asistencia semanal ============
     st.markdown("### 📆 Asistencia semanal")
     df_w = _weekday_assistance(temporada_sel)
-    st.dataframe(df_w, use_container_width=True, hide_index=True)
+    st.dataframe(df_w, width='stretch', hide_index=True)
     st.caption("Cobertura % = Jugados / Posibles (por día de la semana en el rango seleccionado).")
 
     st.markdown("---")
@@ -643,13 +643,13 @@ def panel_admin_stats():
     with col1:
         st.write("**Top sobre-rendimiento** (≥15 PJ)")
         if not top_pos.empty:
-            st.dataframe(top_pos, use_container_width=True, hide_index=True)
+            st.dataframe(top_pos, width='stretch', hide_index=True)
         else:
             st.caption("Sin datos suficientes.")
     with col2:
         st.write("**Top sub-rendimiento** (≥15 PJ)")
         if not top_neg.empty:
-            st.dataframe(top_neg, use_container_width=True, hide_index=True)
+            st.dataframe(top_neg, width='stretch', hide_index=True)
         else:
             st.caption("Sin datos suficientes.")
 
@@ -698,7 +698,7 @@ def panel_admin_stats():
         # Info de cuántos jugadores quedan tras el filtro
         st.caption(f"Mostrando {len(df_show)} jugador(es) (mínimo {int(min_pj)} PJ).")
 
-        st.dataframe(df_show, use_container_width=True, hide_index=True)
+        st.dataframe(df_show, width='stretch', hide_index=True)
 
     st.divider()
     if st.button("⬅️ Volver al menú admin", key="admin_stats_back"):

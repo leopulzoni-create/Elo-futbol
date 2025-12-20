@@ -384,7 +384,7 @@ def panel_gestion():
                     st.caption(f"ID {g['id']}")
                 with col2:
                     st.write("")  # espaciador para alinear verticalmente
-                    if st.button("Renombrar", key=f"grp_ren_{g['id']}", use_container_width=True):
+                    if st.button("Renombrar", key=f"grp_ren_{g['id']}", width='stretch'):
                         name = (nuevo_nombre or "").strip()
                         if not name:
                             st.error("El nombre no puede quedar vacío.")
@@ -402,7 +402,7 @@ def panel_gestion():
                             st.rerun()
                 with col3:
                     st.write("")  # espaciador para alinear verticalmente
-                    if st.button("Eliminar", key=f"grp_del_{g['id']}", use_container_width=True):
+                    if st.button("Eliminar", key=f"grp_del_{g['id']}", width='stretch'):
                         # Eliminar directo (sin checkbox)
                         conn = get_connection()
                         cur = conn.cursor()
