@@ -461,6 +461,113 @@ def _diff_real(lista10, name2elo):
     return abs(elo1 - elo2), elo1, elo2
 
 
+def _enumerar_opciones_exactas_por_bloques(bloques, name2elo, n_opciones=12, diff_max=350):
+    """
+    Enumeración EXACTA de opciones respetando bloques (duplas/tríos).
+    Devuelve top N por ΔELO real.
+
+    - Cada bloque es indivisible (va entero al Equipo 1 o al 2).
+    - Equipo 1 debe sumar exactamente 5 jugadores.
+    - Para evitar duplicados por swap E1/E2, fijamos un bloque ancla en E1.
+    """
+    if not bloques:
+        return [], []
+
+    sizes = [len(b) for b in bloques]
+    total = sum(sizes)
+    if total != 10:
+        return [], []
+
+    # --- elegir bloque ancla: el que contenga el nombre lexicográficamente menor ---
+    # (esto hace canónica la elección y evita duplicados espejados)
+    def bloque_min_nombre(bl):
+        return min(p["nombre"] for p in bl)
+
+    anchor_i = min(range(len(bloques)), key=lambda i: bloque_min_nombre(bloques[i]))
+    anchor_size = sizes[anchor_i]
+    if anchor_size > 5:
+        return [], []
+
+    need = 5 - anchor_size
+    indices_rest = [i for i in range(len(bloques)) if i != anchor_i]
+
+    # --- precomputar nombres por bloque y elo por bloque ---
+    bloque_names = []
+    bloque_elo = []
+    for bl in bloques:
+        ns = [p["nombre"] for p in bl]
+        bloque_names.append(ns)
+        bloque_elo.append(int(sum(name2elo.get(n, 0) for n in ns)))
+
+    # --- enumerar combinaciones de bloques que completen el equipo 1 ---
+    candidatos = []  # (diff, elo1, elo2, lista10)
+
+    # caso especial: anchor ya completa 5
+    if need == 0:
+        team1_idx = {anchor_i}
+        team2_idx = set(indices_rest)
+
+        team1_names = []
+        for i in [anchor_i]:
+            team1_names.extend(bloque_names[i])
+        team2_names = []
+        for i in indices_rest:
+            team2_names.extend(bloque_names[i])
+
+        # Por prolijidad: ordenar nombres dentro de equipo (opcional)
+        team1_names = sorted(team1_names)
+        team2_names = sorted(team2_names)
+
+        elo1 = int(sum(name2elo.get(n, 0) for n in team1_names))
+        elo2 = int(sum(name2elo.get(n, 0) for n in team2_names))
+        diff = abs(elo1 - elo2)
+        candidatos.append((diff, elo1, elo2, team1_names + team2_names))
+
+    else:
+        # Enumeración de subsets del resto que sumen 'need'
+        # len(bloques) es chica (como mucho 10 singles, o menos con bloques), esto es rápido.
+        for r in range(0, len(indices_rest) + 1):
+            for comb in itertools.combinations(indices_rest, r):
+                if sum(sizes[i] for i in comb) != need:
+                    continue
+
+                team1_indices = {anchor_i, *comb}
+                team2_indices = set(range(len(bloques))) - team1_indices
+
+                team1_names = []
+                for i in team1_indices:
+                    team1_names.extend(bloque_names[i])
+                team2_names = []
+                for i in team2_indices:
+                    team2_names.extend(bloque_names[i])
+
+                if len(team1_names) != 5 or len(team2_names) != 5:
+                    continue
+
+                team1_names = sorted(team1_names)
+                team2_names = sorted(team2_names)
+
+                elo1 = int(sum(name2elo.get(n, 0) for n in team1_names))
+                elo2 = int(sum(name2elo.get(n, 0) for n in team2_names))
+                diff = abs(elo1 - elo2)
+
+                candidatos.append((diff, elo1, elo2, team1_names + team2_names))
+
+    if not candidatos:
+        return [], []
+
+    candidatos.sort(key=lambda x: x[0])
+
+    # preferimos <= diff_max si hay suficientes; si no, devolvemos igual el top
+    dentro = [c for c in candidatos if c[0] <= diff_max]
+    base = dentro if len(dentro) >= n_opciones else candidatos
+
+    base = base[:min(n_opciones, len(base))]
+    opciones = [c[3] for c in base]
+    diffs = [c[0] for c in base]
+    return opciones, diffs
+
+
 def generar_opciones_unicas(
     bloques,
     n_opciones=12,
@@ -472,9 +579,10 @@ def generar_opciones_unicas(
     Genera hasta n_opciones opciones distintas, priorizando las de menor ΔELO REAL.
 
     - Si NO hay duplas/tríos (10 singles): calcula TODAS las combinaciones únicas (126) y devuelve top N.
-    - Si SÍ hay duplas/tríos: usa búsqueda por seeds (respeta bloques) + dedupe por matchup_key.
+    - Si SÍ hay duplas/tríos: ahora también hace enumeración EXACTA por bloques y devuelve top N.
 
-    diff_max se usa como preferencia de corte temprano en el modo con bloques.
+    Parámetros max_busquedas/intentos_por_busqueda quedan por compatibilidad,
+    pero ya no se usan en el camino exacto.
     """
     if not bloques:
         return [], []
@@ -486,7 +594,6 @@ def generar_opciones_unicas(
     # ============
     if len(bloques) == 10 and all(len(b) == 1 for b in bloques):
         names = [b[0]["nombre"] for b in bloques]
-        # ancla para evitar contar swap equipo1/equipo2 dos veces
         anchor = names[0]
         others = names[1:]
 
@@ -495,16 +602,17 @@ def generar_opciones_unicas(
             team1 = [anchor] + list(comb)
             team2 = [n for n in names if n not in team1]
 
+            team1 = sorted(team1)
+            team2 = sorted(team2)
+
             elo1 = int(sum(name2elo.get(n, 0) for n in team1))
             elo2 = int(sum(name2elo.get(n, 0) for n in team2))
             diff = abs(elo1 - elo2)
 
-            lista10 = team1 + team2
-            candidatos.append((diff, elo1, elo2, lista10))
+            candidatos.append((diff, elo1, elo2, team1 + team2))
 
         candidatos.sort(key=lambda x: x[0])
 
-        # preferimos <= diff_max si hay suficientes, si no, devolvemos igual lo mejor existente
         dentro = [c for c in candidatos if c[0] <= diff_max]
         base = dentro if len(dentro) >= n_opciones else candidatos
 
@@ -514,35 +622,14 @@ def generar_opciones_unicas(
         return opciones, diffs
 
     # ============
-    # Caso con bloques (duplas/tríos): búsqueda + dedupe
+    # Caso con bloques (duplas/tríos): enumeración exacta
     # ============
-    mejores_por_key = {}  # key -> (diff, lista10)
-
-    seed_base = 11
-    for pruebas in range(1, max_busquedas + 1):
-        lista, _ = generar_mejor(
-            bloques,
-            intentos=intentos_por_busqueda,
-            seed=seed_base + pruebas * 13
-        )
-        if not lista:
-            continue
-
-        key = matchup_key(lista)
-        diff, _, _ = _diff_real(lista, name2elo)
-
-        prev = mejores_por_key.get(key)
-        if (prev is None) or (diff < prev[0]):
-            mejores_por_key[key] = (diff, lista)
-
-        # corte temprano si ya juntamos suficientes dentro del umbral
-        if len([1 for d, _l in mejores_por_key.values() if d <= diff_max]) >= n_opciones:
-            break
-
-    ordenadas = sorted(mejores_por_key.values(), key=lambda x: x[0])
-    opciones = [it[1] for it in ordenadas[:n_opciones]]
-    diffs = [it[0] for it in ordenadas[:n_opciones]]
-    return opciones, diffs
+    return _enumerar_opciones_exactas_por_bloques(
+        bloques,
+        name2elo,
+        n_opciones=n_opciones,
+        diff_max=diff_max
+    )
 
 
 # -------------------------
