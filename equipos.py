@@ -830,7 +830,7 @@ def render_vista_jugadores(partido_id: int):
 # Selección de partido y panel
 # -------------------------
 def panel_generacion():
-    st.subheader("⚽ Generar equipos (hasta 12 opciones, por tandas de 3)")
+    st.subheader("⚽ Generar equipos")
 
     if st.button("⬅️ Volver al menú principal", key="btn_back_top"):
         st.session_state.admin_page = None
