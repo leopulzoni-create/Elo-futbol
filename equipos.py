@@ -5,8 +5,9 @@ from datetime import datetime, timedelta
 import unicodedata
 import random
 from collections import defaultdict
+import itertools
 
-DB_NAME = "elo_futbol.db"  # nombre exacto
+DB_NAME = "elo_futbol.db"  # nombre exact
 
 # -------------------------
 # Conexión y utilidades
@@ -416,7 +417,7 @@ def generar_mejor(bloques, intentos=5000, seed=1):
             best_diff = diff
             best_list = lista_nombres_10(e1, e2)
 
-            # corte temprano: si querés más “fuerza bruta”, bajá este número o comentá el bloque.
+            # corte temprano suave
             if best_diff <= 20:
                 break
 
@@ -460,17 +461,61 @@ def _diff_real(lista10, name2elo):
     return abs(elo1 - elo2), elo1, elo2
 
 
-def generar_opciones_unicas(bloques, n_opciones=9, max_busquedas=800, intentos_por_busqueda=2500):
+def generar_opciones_unicas(
+    bloques,
+    n_opciones=12,
+    diff_max=350,
+    max_busquedas=1200,
+    intentos_por_busqueda=3500
+):
     """
     Genera hasta n_opciones opciones distintas, priorizando las de menor ΔELO REAL.
-    NO fabrica swaps de jugadores (porque rompería duplas/tríos) y NO inventa diffs.
+
+    - Si NO hay duplas/tríos (10 singles): calcula TODAS las combinaciones únicas (126) y devuelve top N.
+    - Si SÍ hay duplas/tríos: usa búsqueda por seeds (respeta bloques) + dedupe por matchup_key.
+
+    diff_max se usa como preferencia de corte temprano en el modo con bloques.
     """
     if not bloques:
         return [], []
 
     name2elo = _name2elo_from_bloques(bloques)
 
-    # guardamos la mejor versión de cada match (por si aparece repetida)
+    # ============
+    # Caso 10 singles: enumeración exacta (126)
+    # ============
+    if len(bloques) == 10 and all(len(b) == 1 for b in bloques):
+        names = [b[0]["nombre"] for b in bloques]
+        # ancla para evitar contar swap equipo1/equipo2 dos veces
+        anchor = names[0]
+        others = names[1:]
+
+        candidatos = []  # (diff, elo1, elo2, lista10)
+        for comb in itertools.combinations(others, 4):
+            team1 = [anchor] + list(comb)
+            team2 = [n for n in names if n not in team1]
+
+            elo1 = int(sum(name2elo.get(n, 0) for n in team1))
+            elo2 = int(sum(name2elo.get(n, 0) for n in team2))
+            diff = abs(elo1 - elo2)
+
+            lista10 = team1 + team2
+            candidatos.append((diff, elo1, elo2, lista10))
+
+        candidatos.sort(key=lambda x: x[0])
+
+        # preferimos <= diff_max si hay suficientes, si no, devolvemos igual lo mejor existente
+        dentro = [c for c in candidatos if c[0] <= diff_max]
+        base = dentro if len(dentro) >= n_opciones else candidatos
+
+        base = base[:min(n_opciones, len(base))]
+        opciones = [c[3] for c in base]
+        diffs = [c[0] for c in base]
+        return opciones, diffs
+
+    # ============
+    # Caso con bloques (duplas/tríos): búsqueda + dedupe
+    # ============
     mejores_por_key = {}  # key -> (diff, lista10)
 
     seed_base = 11
@@ -490,8 +535,8 @@ def generar_opciones_unicas(bloques, n_opciones=9, max_busquedas=800, intentos_p
         if (prev is None) or (diff < prev[0]):
             mejores_por_key[key] = (diff, lista)
 
-        # corte temprano si ya tenemos suficiente pool
-        if len(mejores_por_key) >= (n_opciones * 3) and pruebas >= 60:
+        # corte temprano si ya juntamos suficientes dentro del umbral
+        if len([1 for d, _l in mejores_por_key.values() if d <= diff_max]) >= n_opciones:
             break
 
     ordenadas = sorted(mejores_por_key.values(), key=lambda x: x[0])
@@ -699,7 +744,7 @@ def render_vista_jugadores(partido_id: int):
 # Selección de partido y panel
 # -------------------------
 def panel_generacion():
-    st.subheader("⚽ Generar equipos (9 opciones, por tandas de 3)")
+    st.subheader("⚽ Generar equipos (hasta 12 opciones, por tandas de 3)")
 
     if st.button("⬅️ Volver al menú principal", key="btn_back_top"):
         st.session_state.admin_page = None
@@ -825,18 +870,19 @@ def panel_generacion():
     bloques = construir_bloques(jugadores)
 
     # =========================
-    # Generar 9 opciones (3x3)
+    # Generar opciones (paginadas 3 en 3)
     # =========================
     cgen, calt = st.columns([1, 1])
 
     with cgen:
         if st.button("🎲 Generar 3 opciones balanceadas", key="btn_generar_opciones"):
-            with st.spinner("Buscando hasta 9 alternativas (ordenadas por ΔELO real)..."):
+            with st.spinner("Buscando hasta 12 alternativas (ordenadas por ΔELO real)..."):
                 opts, diffs = generar_opciones_unicas(
                     bloques,
-                    n_opciones=9,
-                    max_busquedas=900,
-                    intentos_por_busqueda=2800
+                    n_opciones=12,
+                    diff_max=350,
+                    max_busquedas=1200,
+                    intentos_por_busqueda=3500
                 )
                 if not opts:
                     st.error("No se pudieron generar opciones. Revisá duplas/tríos o que haya 10 jugadores.")
@@ -845,12 +891,15 @@ def panel_generacion():
                 st.session_state._equipos_opciones = opts
                 st.session_state._equipos_diffs = diffs
                 st.session_state._equipos_actual = None
-                st.session_state._equipos_page = 0
+                st.session_state._equipos_page = 0  # siempre vuelve a las más parejas
+                st.rerun()
 
     with calt:
         if st.button("➕ Más alternativas", key="btn_mas_alternativas"):
             if st.session_state.get("_equipos_opciones"):
-                st.session_state._equipos_page = (st.session_state.get("_equipos_page", 0) + 1) % 3
+                opts = st.session_state._equipos_opciones
+                pages = max(1, (len(opts) + 2) // 3)  # ceil(len/3)
+                st.session_state._equipos_page = (st.session_state.get("_equipos_page", 0) + 1) % pages
                 st.session_state._equipos_actual = None
                 st.rerun()
 
@@ -861,12 +910,14 @@ def panel_generacion():
         opts = st.session_state._equipos_opciones
 
         page = st.session_state.get("_equipos_page", 0)
+        pages = max(1, (len(opts) + 2) // 3)
+        page = page % pages
+
         start = page * 3
         end = start + 3
         opts_page = opts[start:end]
 
-        tandas = ["Más parejas", "Alternativas", "Menos parejas"]
-        st.caption(f"Tanda: **{tandas[page]}** ({start+1}–{min(end, len(opts))} de {len(opts)})")
+        st.caption(f"Página: **{page + 1}/{pages}** ({start + 1}–{min(end, len(opts))} de {len(opts)})")
 
         cols = st.columns(3)
         chosen_idx = None
@@ -883,7 +934,7 @@ def panel_generacion():
             elo2 = int(sum(elo_map.get(n, 0) for n in t2))
             delta = abs(elo1 - elo2)
 
-            col.markdown(f"### Opción {global_i+1}")
+            col.markdown(f"### Opción {global_i + 1}")
             col.write(f"ΔELO = {delta}")
             col.caption(f"Equipo 1: {elo1} · Equipo 2: {elo2}")
 
@@ -895,12 +946,12 @@ def panel_generacion():
             for n in t2:
                 col.write(f"- {n}")
 
-            if col.button(f"Seleccionar Opción {global_i+1}", key=f"btn_sel_opt_{global_i+1}"):
+            if col.button(f"Seleccionar Opción {global_i + 1}", key=f"btn_sel_opt_{global_i + 1}"):
                 chosen_idx = global_i
 
         if chosen_idx is not None:
             st.session_state._equipos_actual = opts[chosen_idx][:]
-            st.success(f"Opción {chosen_idx+1} cargada. Podés intercambiar jugadores antes de confirmar.")
+            st.success(f"Opción {chosen_idx + 1} cargada. Podés intercambiar jugadores antes de confirmar.")
 
     # =========================
     # Ajuste manual + confirmar
