@@ -36,6 +36,13 @@ ensure_admin_user()
 COOKIE_NAME = "auth_token"
 cookie_manager = stx.CookieManager(key="topo_auth_cookie")  # una sola instancia por run
 
+# ---------------------------
+# FIX: Rerun diferido
+# - Evita que st.rerun() ocurra antes de que CookieManager persista "auth_token"
+# ---------------------------
+if st.session_state.pop("_deferred_rerun", False):
+    st.rerun()
+
 
 def get_token_from_cookie() -> str:
     try:
@@ -211,7 +218,9 @@ if "user" not in st.session_state:
                     set_url_token(tok)      # URL
                     set_token_cookie(tok)   # COOKIE
 
-            st.rerun()
+            # FIX: no hacer rerun inmediato, lo diferimos para que la cookie se escriba
+            st.session_state["_deferred_rerun"] = True
+            st.stop()
         else:
             st.error("Usuario o contraseña incorrectos")
 
