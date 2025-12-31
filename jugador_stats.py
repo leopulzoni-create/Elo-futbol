@@ -532,54 +532,48 @@ def _rank_best_points(temporada: str | None, min_pj: int = 15, top: int = 3):
     return rows
 
 def _rank_most_improved(temporada: str | None, min_pj: int = 15, top: int = 3):
-    # ΔELO = ELO_último - ELO_primero en la temporada; requiere historial_elo.
+    """
+    ΔELO ganado por partidos = SUM(elo_despues - elo_antes) en la temporada.
+    Esto excluye ajustes manuales de elo_actual hechos desde Gestión de jugadores.
+    Requiere historial_elo (solo se llena en partidos oficiales).
+    """
     season_sql, season_params = _season_clause_and_params(temporada, "p")
     cond = _result_condition_sql("p")
+
     with _get_conn() as conn:
         cur = conn.cursor()
-        # candidatos por PJ
         cur.execute(
             f"""
-            SELECT pj.jugador_id, COUNT(*) AS pj
-            FROM partido_jugadores pj
-            JOIN partidos p ON p.id = pj.partido_id
-            WHERE {cond} {season_sql}
-            GROUP BY pj.jugador_id
-            HAVING COUNT(*) >= ?
-            """, (*season_params, min_pj)
-        )
-        candidatos = [r["jugador_id"] for r in _fetchall_dicts(cur)]
-
-    results = []
-    with _get_conn() as conn:
-        cur = conn.cursor()
-        for jid in candidatos:
-            cur.execute(
-                f"""
-                SELECT p.fecha, h.elo_antes, h.elo_despues
-                FROM historial_elo h
-                JOIN partidos p ON p.id = h.partido_id
-                WHERE h.jugador_id = ? {season_sql}
-                ORDER BY datetime(p.fecha), p.id
-                """, (jid, *season_params)
+            WITH agg AS (
+              SELECT
+                h.jugador_id,
+                COUNT(*) AS pj,
+                SUM(COALESCE(h.elo_despues,0) - COALESCE(h.elo_antes,0)) AS delta
+              FROM historial_elo h
+              JOIN partidos p ON p.id = h.partido_id
+              WHERE {cond} {season_sql}
+              GROUP BY h.jugador_id
+              HAVING COUNT(*) >= ?
             )
-            rows = _fetchall_dicts(cur)
-            if not rows:
-                continue
-            start = rows[0].get("elo_antes") if rows[0].get("elo_antes") is not None else rows[0].get("elo_despues")
-            end   = rows[-1].get("elo_despues") if rows[-1].get("elo_despues") is not None else rows[-1].get("elo_antes")
-            if start is None or end is None:
-                continue
-            try:
-                delta = float(end) - float(start)
-            except Exception:
-                continue
-            cur.execute("SELECT nombre FROM jugadores WHERE id = ?", (jid,))
-            nr = _fetchone_dict(cur) or {"nombre":"?"}
-            results.append({"jugador_id": jid, "nombre": nr.get("nombre") or "?", "delta": delta})
+            SELECT a.jugador_id, j.nombre, a.pj, a.delta
+            FROM agg a
+            JOIN jugadores j ON j.id = a.jugador_id
+            ORDER BY a.delta DESC, a.pj DESC, j.nombre ASC
+            LIMIT ?
+            """,
+            (*season_params, min_pj, top),
+        )
+        rows = _fetchall_dicts(cur)
 
-    results.sort(key=lambda x: (x["delta"], x["nombre"]), reverse=True)
-    return results[:top]
+    # normalización por las dudas
+    for r in rows:
+        try: r["pj"] = int(r.get("pj") or 0)
+        except Exception: r["pj"] = 0
+        try: r["delta"] = float(r.get("delta") or 0.0)
+        except Exception: r["delta"] = 0.0
+
+    return rows
+
 
 # ======================
 # Cabecera visual (opción A)
