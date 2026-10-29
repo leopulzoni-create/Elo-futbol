@@ -2,7 +2,6 @@ import streamlit as st
 from auth import verify_user
 import scheduler  # dispara materializaciones "lazy"
 from crear_admin import ensure_admin_user
-ensure_admin_user()
 from PIL import Image
 
 from remember import (
@@ -28,7 +27,6 @@ st.set_page_config(
     layout="centered",                      # opcional, solo estética
 )
 
-ensure_admin_user()
 
 # ---------------------------
 # CookieManager para remember-me
@@ -85,7 +83,11 @@ def _hero_logo_login(width_px: int = 200, opacity: float = 0.95):
 # ==================================================
 #  Autologin por token (URL o cookie)
 # ==================================================
-ensure_tables()
+# Inicializar una sola vez por sesión; marcar sólo después de completar.
+if not st.session_state.get("_startup_ready"):
+    ensure_admin_user()
+    ensure_tables()
+    st.session_state["_startup_ready"] = True
 if "user" not in st.session_state:
     url_token = current_token_in_url()
 

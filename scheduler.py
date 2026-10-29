@@ -6,6 +6,7 @@ from db import get_connection
 # - Inserta plantilla de jugadores al materializar (sin exceder cupo).
 
 import sqlite3
+import streamlit as st
 from datetime import datetime, timedelta
 
 DB_NAME = "elo_futbol.db"
@@ -92,7 +93,8 @@ def run_programaciones_vencidas() -> int:
 
     with get_connection() as conn:
         cur = conn.cursor()
-        _ensure_schema(cur)
+        if not st.session_state.get("_scheduler_schema_ready"):
+            _ensure_schema(cur)
 
         # Traer programaciones vencidas (enabled=1)
         cur.execute("""
@@ -183,5 +185,6 @@ def run_programaciones_vencidas() -> int:
                 cur.execute("UPDATE programaciones SET enabled = 0 WHERE id = ?", (pr["id"],))
 
         conn.commit()
+        st.session_state["_scheduler_schema_ready"] = True
 
     return created

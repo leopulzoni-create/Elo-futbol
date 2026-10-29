@@ -40,9 +40,10 @@ def _ensure_descripcion_en_jugadores():
             if "foto" not in cols:
                 cur.execute("ALTER TABLE jugadores ADD COLUMN foto TEXT")
                 conn.commit()
+        return True
     except Exception:
         # Si falla (por ejemplo en Turso ya existe), seguimos sin interrumpir la UI.
-        pass
+        return False
 
 
 def _cargar_grupos():
@@ -98,8 +99,10 @@ def _set_memberships(jugador_id, group_ids):
 # UI principal (admin)
 # =======================
 def panel_gestion():
-    _ensure_jugador_grupos()
-    _ensure_descripcion_en_jugadores()
+    if not st.session_state.get("_jugadores_schema_ready"):
+        _ensure_jugador_grupos()
+        if _ensure_descripcion_en_jugadores():
+            st.session_state["_jugadores_schema_ready"] = True
     st.subheader("Gestión de jugadores ⚽")
 
     accion = st.radio(

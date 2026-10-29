@@ -112,6 +112,62 @@ def _cancha_label(cancha_id):
         return f"{nombre} ({direccion})" if direccion else nombre
 
 
+def _datos_partidos(partidos):
+    """Tres consultas por lote, sin cachear cupos ni inscripciones.
+
+    Conservar el conteo de equipos sobre todas las filas de partido_jugadores,
+    igual que la consulta original (incluso si falta un jugador relacionado).
+    """
+    datos = {p["id"]: {"cancha": "Sin asignar", "inscritos": [],
+                         "espera": [], "espera_ids": set(), "equipos": False} for p in partidos}
+    if not datos:
+        return datos
+    ids = list(datos)
+    # Mantener cada sentencia por debajo del límite de parámetros de SQLite.
+    with get_connection() as conn:
+        cur = conn.cursor()
+        for start in range(0, len(ids), 400):
+            batch = ids[start:start + 400]
+            marks = ",".join("?" for _ in batch)
+            cur.execute(f"""
+                SELECT p.id, c.nombre, c.direccion,
+                       (SELECT COUNT(*) FROM partido_jugadores pj
+                        WHERE pj.partido_id=p.id) AS total,
+                       (SELECT COUNT(*) FROM partido_jugadores pj
+                        WHERE pj.partido_id=p.id
+                        AND CAST(pj.equipo AS INTEGER) IN (1,2)) AS con_eq
+                FROM partidos p LEFT JOIN canchas c ON c.id=p.cancha_id
+                WHERE p.id IN ({marks})
+            """, batch)
+            for row in cur.fetchall():
+                nombre = row["nombre"] or "Sin asignar"
+                direccion = (row["direccion"] or "").strip()
+                datos[row["id"]]["cancha"] = (f"{nombre} ({direccion})"
+                                                       if direccion else nombre)
+                datos[row["id"]]["equipos"] = (row["total"] == CUPO_PARTIDO
+                                                  and row["con_eq"] == CUPO_PARTIDO)
+            cur.execute(f"""
+                SELECT pj.partido_id, pj.jugador_id, pj.confirmado_por_jugador,
+                       pj.equipo, pj.ingreso_desde_espera, pj.camiseta, j.nombre
+                FROM partido_jugadores pj JOIN jugadores j ON j.id=pj.jugador_id
+                WHERE pj.partido_id IN ({marks}) ORDER BY j.nombre ASC
+            """, batch)
+            for row in _rows_to_dicts(cur.fetchall()):
+                datos[row["partido_id"]]["inscritos"].append(row)
+            cur.execute(f"""
+                SELECT le.partido_id, le.jugador_id, le.created_at, j.nombre,
+                       j.id AS jugador_existe
+                FROM lista_espera le LEFT JOIN jugadores j ON j.id=le.jugador_id
+                WHERE le.partido_id IN ({marks}) ORDER BY le.created_at ASC
+            """, batch)
+            for row in _rows_to_dicts(cur.fetchall()):
+                detalle = datos[row["partido_id"]]
+                detalle["espera_ids"].add(row["jugador_id"])
+                if row.pop("jugador_existe") is not None:
+                    detalle["espera"].append(row)
+    return datos
+
+
 # ---------- Lista de espera ----------
 def _waitlist_get(partido_id):
     with get_connection() as conn:
@@ -485,6 +541,7 @@ def panel_menu_jugador(user):
                 p.fecha,
                 p.hora,
                 p.cancha_id,
+                c.nombre AS cancha_nombre, c.direccion AS cancha_direccion,
                 -- si hay varias filas para el jugador en ese partido,
                 -- tomamos cualquier camiseta válida ('oscura' o 'clara')
                 MAX(
@@ -498,6 +555,7 @@ def panel_menu_jugador(user):
                 MAX(COALESCE(pj.confirmado_por_jugador, 0)) AS confirmado_por_jugador
             FROM partidos p
             JOIN partido_jugadores pj ON pj.partido_id = p.id
+            LEFT JOIN canchas c ON c.id = p.cancha_id
             WHERE pj.jugador_id = ?
               AND (p.ganador IS NULL OR TRIM(p.ganador) = '')
               AND substr(p.fecha, 1, 10) >= ?
@@ -505,7 +563,7 @@ def panel_menu_jugador(user):
                 p.id,
                 p.fecha,
                 p.hora,
-                p.cancha_id
+                p.cancha_id, c.nombre, c.direccion
             ORDER BY datetime(p.fecha), p.id
         """, (jugador_id, today_iso_ar))
         proximos = _rows_to_dicts(cur.fetchall())
@@ -520,7 +578,10 @@ def panel_menu_jugador(user):
             fecha_es = _format_fecha_ddmmyyyy(p["fecha"])
             dia_es = _weekday_es(p["fecha"])
             hora_lbl = time_label_from_int(p["hora"])
-            cancha_name = _cancha_label(p["cancha_id"])
+            cancha_name = p["cancha_nombre"] or "Sin asignar"
+            direccion = (p["cancha_direccion"] or "").strip()
+            if direccion:
+                cancha_name = f"{cancha_name} ({direccion})"
             titulo = f"{dia_es.capitalize()} {fecha_es} • {hora_lbl} hs • {cancha_name}"
 
             # Estado (confirmado por jugador vs agregado por admin)
@@ -585,19 +646,21 @@ def panel_partidos_disponibles(user):
             st.session_state["jugador_page"] = "menu"; st.rerun()
         return
 
+    datos = _datos_partidos(partidos)
     for p in partidos:
         partido_id = p["id"]
         fecha = p["fecha"]
         creador = (p.get("equipos_generados_por") or "").strip()
         hora_lbl = time_label_from_int(p["hora"])
-        cancha_name = _cancha_label(p["cancha_id"])
-        inscritos = _jugadores_en_partido(partido_id)
+        detalle = datos[partido_id]
+        cancha_name = detalle["cancha"]
+        inscritos = detalle["inscritos"]
         count = len(inscritos)
-        wl = _waitlist_get(partido_id)
+        wl = detalle["espera"]
         wl_count = len(wl)
 
         yo_en_roster = any(j["jugador_id"] == jugador_id for j in inscritos)
-        yo_en_espera = _waitlist_is_in(partido_id, jugador_id)
+        yo_en_espera = jugador_id in detalle["espera_ids"]
 
         badges = []
         if count >= CUPO_PARTIDO:
@@ -614,7 +677,7 @@ def panel_partidos_disponibles(user):
         titulo = f"{fecha_es} ({dia_es}) • {hora_lbl} hs • {cancha_name}{badge_txt}"
 
         with st.expander(titulo, expanded=False):
-            if _equipos_estan_generados(partido_id):
+            if detalle["equipos"]:
                 # 👇 NUEVO: mostrar quién generó los equipos (solo si hay nombre)
                 if creador:
                     st.caption(f"Equipos generados por **{creador}**")
