@@ -772,7 +772,7 @@ def equipos_ya_confirmados(partido_id: int):
 # -------------------------
 # Rachas de camisetas (últimos 2 meses, racha actual)
 # -------------------------
-def calcular_rachas_camiseta(partido_id: int, fecha_ref):
+def calcular_rachas_camiseta(partido_id: int, fecha_ref, jugadores=None):
     """
     Devuelve lista de dicts:
       {nombre, camiseta, veces}
@@ -783,30 +783,36 @@ def calcular_rachas_camiseta(partido_id: int, fecha_ref):
     if fecha_ref is None:
         return []
 
-    jugadores = obtener_jugadores_partido_full(partido_id)
+    if jugadores is None:
+        jugadores = obtener_jugadores_partido_full(partido_id)
     if not jugadores:
         return []
-
     fecha_fin = fecha_ref.date()
     fecha_ini = fecha_fin - timedelta(days=60)
-
     conn = get_connection()
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
+        ids = [j["jugador_id"] for j in jugadores]
+        marks = ",".join("?" for _ in ids)
+        cur.execute(f"""
+            SELECT pj.jugador_id, p.fecha, pj.camiseta
+            FROM partidos p JOIN partido_jugadores pj ON pj.partido_id=p.id
+            WHERE pj.jugador_id IN ({marks})
+              AND date(p.fecha) BETWEEN ? AND ?
+            ORDER BY date(p.fecha) ASC, p.id ASC
+        """, ids + [fecha_ini.isoformat(), fecha_fin.isoformat()])
+        historiales = defaultdict(list)
+        for row in cur.fetchall():
+            historiales[row["jugador_id"]].append((row["fecha"], row["camiseta"]))
+    finally:
+        conn.close()
 
     avisos = []
 
     for j in jugadores:
         jid = j["jugador_id"]
 
-        cur.execute("""
-            SELECT p.fecha, pj.camiseta
-            FROM partidos p
-            JOIN partido_jugadores pj ON pj.partido_id = p.id
-            WHERE pj.jugador_id = ?
-              AND p.fecha IS NOT NULL
-            ORDER BY date(p.fecha) ASC, p.id ASC
-        """, (jid,))
-        rows = cur.fetchall()
+        rows = historiales[jid]
         if not rows:
             continue
 
@@ -849,7 +855,6 @@ def calcular_rachas_camiseta(partido_id: int, fecha_ref):
                 "veces": count,
             })
 
-    conn.close()
     return avisos
 
 
@@ -898,336 +903,5 @@ def render_vista_jugadores(partido_id: int):
 # Selección de partido y panel
 # -------------------------
 def panel_generacion():
-    st.subheader("⚽ Generar equipos")
-
-    if st.button("⬅️ Volver al menú principal", key="btn_back_top"):
-        st.session_state.admin_page = None
-        st.rerun()
-
-    partidos = obtener_partidos_abiertos()
-    if not partidos:
-        st.info("No hay partidos abiertos.")
-        return
-
-    opciones_combo = []
-    for p in partidos:
-        pid = p["id"]
-        np = p["np"]
-        fecha_dt = parsear_fecha(p["fecha"])
-        cancha = p["cancha_nombre"]
-        hora_str = formatear_hora(p["hora"])
-        if fecha_dt:
-            dia_es = DIAS_ES[fecha_dt.weekday()]
-            fecha_txt = fecha_dt.strftime("%d/%m/%y")
-            etiqueta = f"N° {np} - {dia_es} {fecha_txt} {hora_str} - {cancha}"
-        else:
-            etiqueta = f"N° {np} - {p['fecha']} {hora_str} - {cancha}"
-        opciones_combo.append((pid, etiqueta, np))
-
-    sel = st.selectbox("Seleccioná el partido:", [t for _, t, _ in opciones_combo], key="sb_partido")
-    partido_id, numero_publico = next((pid, np) for pid, t, np in opciones_combo if t == sel)
-
-    np, fecha_dt, hora_str, cancha_nombre = obtener_partido_info(partido_id)
-    numero_publico = np if np is not None else numero_publico
-    if fecha_dt:
-        dia_es = DIAS_ES[fecha_dt.weekday()]
-        fecha_txt = fecha_dt.strftime("%d/%m/%y")
-        header = f"Partido N° {numero_publico} — {dia_es} {fecha_txt} {hora_str} — {cancha_nombre}"
-    else:
-        header = f"Partido N° {numero_publico} — {cancha_nombre}"
-
-    st.markdown(
-        f"<div style='font-size:1.35rem; font-weight:700; line-height:1.4; margin:0.25rem 0 0.5rem;'>"
-        f"{header}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    confirmado, team1c, team2c, elo1c, elo2c = equipos_ya_confirmados(partido_id)
-    if confirmado:
-        c1, c2 = st.columns(2)
-        with c1:
-            j1 = obtener_camiseta_equipo(partido_id, 1)
-            lab1 = f"**Equipo 1 ({elo1c} ELO)** — Camiseta: {j1.capitalize() if j1 else '—'}"
-            st.markdown(lab1)
-            for n in team1c:
-                st.write(f"- {n}")
-        with c2:
-            j2 = obtener_camiseta_equipo(partido_id, 2)
-            lab2 = f"**Equipo 2 ({elo2c} ELO)** — Camiseta: {j2.capitalize() if j2 else '—'}"
-            st.markdown(lab2)
-            for n in team2c:
-                st.write(f"- {n}")
-
-        st.divider()
-        st.markdown("### 👕 Camisetas")
-
-        cam1 = obtener_camiseta_equipo(partido_id, 1) or "clara"
-        cam2 = obtener_camiseta_equipo(partido_id, 2) or "oscura"
-
-        colj1, colj2 = st.columns(2)
-        with colj1:
-            st.markdown(f"**Equipo 1:** Camiseta {cam1.capitalize()}")
-        with colj2:
-            st.markdown(f"**Equipo 2:** Camiseta {cam2.capitalize()}")
-
-        if st.button("↔️ Intercambiar camisetas", key="btn_swap_camisetas"):
-            intercambiar_camisetas(partido_id)
-            st.success("Camisetas intercambiadas.")
-            st.rerun()
-
-        avisos = calcular_rachas_camiseta(partido_id, fecha_dt)
-        if avisos:
-            st.markdown("#### 📊 Rachas de camiseta (últimos 2 meses)")
-            for a in avisos:
-                color_txt = "clara" if a["camiseta"] == "clara" else "oscura"
-                st.write(f"- {a['nombre']}: {a['veces']} partidos con camiseta {color_txt}")
-
-        st.divider()
-        st.markdown("### 👥 Vista para jugadores")
-        render_vista_jugadores(partido_id)
-
-        st.divider()
-        st.warning("Para rehacer equipos, primero eliminá los confirmados.")
-        if st.button("🗑️ Eliminar equipos confirmados", key="btn_eliminar_confirmados"):
-            borrar_equipos_confirmados(partido_id)
-            st.success("Equipos eliminados. Ahora podés generar nuevas opciones.")
-            st.rerun()
-
-        if st.button("⬅️ Volver al menú principal", key="btn_back_bottom_locked"):
-            st.session_state.admin_page = None
-            st.rerun()
-        return
-
-    jugadores = obtener_jugadores_partido_full(partido_id)
-    if not jugadores:
-        st.info("Todavía no hay jugadores en este partido.")
-        return
-
-    # =========================
-    # (CAMBIO 2) Remover impresión duplicada + permitir editar roster acá mismo
-    # =========================
-    st.markdown("### 👥 Jugadores del partido")
-
-    total_actual = len(jugadores)
-    cA, cB = st.columns([1, 2])
-    with cA:
-        st.caption(f"Inscriptos: **{total_actual}/{CUPO_PARTIDO}**")
-    with cB:
-        if total_actual == CUPO_PARTIDO:
-            st.success("Roster completo ✅")
-        elif total_actual < CUPO_PARTIDO:
-            st.warning(f"Faltan {CUPO_PARTIDO - total_actual} para completar.")
-        else:
-            st.error(f"Hay más de {CUPO_PARTIDO} inscriptos (esto no debería pasar).")
-
-    # Lista con botones Quitar (reemplaza la impresión como texto)
-    cols = st.columns(2)
-    for i, jp in enumerate(jugadores):
-        icono = "🟢" if jp.get("confirmado") else "🔵"
-        with cols[i % 2]:
-            st.write(f"{icono} {jp['nombre']}")
-            if st.button("Quitar", key=f"btn_quitar_{partido_id}_{jp['jugador_id']}_{i}"):
-                quitar_jugador_de_partido(partido_id, jp["jugador_id"])
-                # invalida opciones/selección si cambia roster
-                for k in ("_equipos_opciones", "_equipos_diffs", "_equipos_actual", "_equipos_page"):
-                    st.session_state.pop(k, None)
-                st.rerun()
-
-    # Si faltan jugadores, permitir completar desde acá
-    faltan = max(0, CUPO_PARTIDO - total_actual)
-    if faltan > 0:
-        st.divider()
-        st.markdown("### ➕ Completar roster (admin)")
-
-        activos = obtener_jugadores_activos()
-        ids_asignados = {j["jugador_id"] for j in jugadores}
-        disponibles = [r for r in activos if r["id"] not in ids_asignados]
-        map_nombre_id = {r["nombre"]: r["id"] for r in disponibles}
-
-        if not map_nombre_id:
-            st.info("No hay jugadores activos disponibles para agregar.")
-            return
-
-        seleccion = st.multiselect(
-            f"Seleccioná hasta {faltan} jugador(es)",
-            options=list(map_nombre_id.keys()),
-            key=f"ms_add_{partido_id}",
-        )
-        if len(seleccion) > faltan:
-            st.warning(f"Solo podés agregar {faltan}.")
-            seleccion = seleccion[:faltan]
-
-        if st.button("Agregar al partido", disabled=(len(seleccion) == 0), key=f"btn_add_{partido_id}"):
-            agregar_jugadores_a_partido(partido_id, [map_nombre_id[n] for n in seleccion])
-            for k in ("_equipos_opciones", "_equipos_diffs", "_equipos_actual", "_equipos_page"):
-                st.session_state.pop(k, None)
-            st.rerun()
-
-        # Sin 10, no se puede generar equipos
-        return
-
-    # Con 10, seguimos EXACTAMENTE igual que antes (matchmaking intacto)
-    names = [j["nombre"] for j in jugadores]
-
-    ui_definir_bloques(partido_id, names)
-
-    jugadores = obtener_jugadores_partido_full(partido_id)
-    bloques = construir_bloques(jugadores)
-
-    # =========================
-    # Generar opciones (paginadas 3 en 3)
-    # =========================
-    cgen, calt = st.columns([1, 1])
-
-    with cgen:
-        if st.button("🎲 Generar opciones balanceadas", key="btn_generar_opciones"):
-            with st.spinner("Buscando hasta 12 alternativas (ordenadas por ΔELO real)..."):
-                opts, diffs = generar_opciones_unicas(
-                    bloques,
-                    n_opciones=12,
-                    diff_max=350,
-                )
-                if not opts:
-                    st.error("No se pudieron generar opciones. Revisá duplas/tríos o que haya 10 jugadores.")
-                    return
-
-                st.session_state._equipos_opciones = opts
-                st.session_state._equipos_diffs = diffs
-                st.session_state._equipos_actual = None
-                st.session_state._equipos_page = 0
-                st.rerun()
-
-    with calt:
-        if st.button("➕ Más alternativas", key="btn_mas_alternativas"):
-            if st.session_state.get("_equipos_opciones"):
-                opts = st.session_state._equipos_opciones
-                pages = max(1, (len(opts) + 2) // 3)  # ceil(len/3)
-                st.session_state._equipos_page = (st.session_state.get("_equipos_page", 0) + 1) % pages
-                st.session_state._equipos_actual = None
-                st.rerun()
-
-    # =========================
-    # Mostrar opciones (paginadas)
-    # =========================
-    if st.session_state.get("_equipos_opciones"):
-        opts = st.session_state._equipos_opciones
-
-        page = st.session_state.get("_equipos_page", 0)
-        pages = max(1, (len(opts) + 2) // 3)
-        page = page % pages
-
-        start = page * 3
-        end = start + 3
-        opts_page = opts[start:end]
-
-        st.caption(f"Página: **{page + 1}/{pages}** ({start + 1}–{min(end, len(opts))} de {len(opts)})")
-
-        cols = st.columns(3)
-        chosen_idx = None
-
-        elo_map = {j["nombre"]: j["elo"] for j in jugadores}
-
-        for local_i, col in enumerate(cols[:len(opts_page)]):
-            global_i = start + local_i
-            lista10 = opts_page[local_i]
-
-            t1 = [n for n in lista10[:5] if n]
-            t2 = [n for n in lista10[5:] if n]
-            elo1 = int(sum(elo_map.get(n, 0) for n in t1))
-            elo2 = int(sum(elo_map.get(n, 0) for n in t2))
-            delta = abs(elo1 - elo2)
-
-            col.markdown(f"### Opción {global_i + 1}")
-            col.write(f"ΔELO = {delta}")
-            col.caption(f"Equipo 1: {elo1} · Equipo 2: {elo2}")
-
-            col.markdown("**Equipo 1**")
-            for n in t1:
-                col.write(f"- {n}")
-
-            col.markdown("**Equipo 2**")
-            for n in t2:
-                col.write(f"- {n}")
-
-            if col.button(f"Seleccionar Opción {global_i + 1}", key=f"btn_sel_opt_{global_i + 1}"):
-                chosen_idx = global_i
-
-        if chosen_idx is not None:
-            st.session_state._equipos_actual = opts[chosen_idx][:]
-            st.success(f"Opción {chosen_idx + 1} cargada. Podés intercambiar jugadores antes de confirmar.")
-
-    # =========================
-    # Ajuste manual + confirmar (blindado a bloques)
-    # =========================
-    if st.session_state.get("_equipos_actual"):
-        st.markdown("### ✍️ Ajuste manual")
-
-        equipo_actual = st.session_state._equipos_actual
-        team1 = equipo_actual[:5]
-        team2 = equipo_actual[5:]
-
-        elo_map = {j["nombre"]: j["elo"] for j in jugadores}
-        elo1 = int(sum(elo_map.get(n, 0) for n in team1 if n))
-        elo2 = int(sum(elo_map.get(n, 0) for n in team2 if n))
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"**Equipo 1 ({elo1} ELO)**")
-            st.write(", ".join([n for n in team1 if n]))
-            a = st.selectbox("Jugador de Equipo 1", ["(ninguno)"] + [n for n in team1 if n], key="swap_a")
-        with c2:
-            st.markdown(f"**Equipo 2 ({elo2} ELO)**")
-            st.write(", ".join([n for n in team2 if n]))
-            b = st.selectbox("Jugador de Equipo 2", ["(ninguno)"] + [n for n in team2 if n], key="swap_b")
-
-        if st.button("↔️ Intercambiar", key="btn_swap"):
-            if a != "(ninguno)" and b != "(ninguno)":
-                t1 = team1[:]
-                t2 = team2[:]
-                i1 = t1.index(a)
-                i2 = t2.index(b)
-                t1[i1], t2[i2] = t2[i2], t1[i1]
-                candidato = t1 + t2
-
-                groups = _build_block_rules_from_bloques(bloques)
-                if groups and _violates_blocks(candidato, groups):
-                    st.error("Ese intercambio rompe una dupla/trío. Elegí otro swap.")
-                else:
-                    st.session_state._equipos_actual = candidato
-                    st.rerun()
-
-        equipo_actual = st.session_state._equipos_actual
-        team1 = equipo_actual[:5]
-        team2 = equipo_actual[5:]
-        elo1 = int(sum(elo_map.get(n, 0) for n in team1 if n))
-        elo2 = int(sum(elo_map.get(n, 0) for n in team2 if n))
-        st.markdown(f"**Equipo 1 ({elo1} ELO)**: " + ", ".join([n for n in team1 if n]))
-        st.markdown(f"**Equipo 2 ({elo2} ELO)**: " + ", ".join([n for n in team2 if n]))
-
-        if st.button("✅ Confirmar equipos", key="btn_confirmar_equipos"):
-            if len([n for n in team1 if n]) == 5 and len([n for n in team2 if n]) == 5:
-                # Validación final por si acaso
-                groups = _build_block_rules_from_bloques(bloques)
-                if groups and _violates_blocks(team1 + team2, groups):
-                    st.error("No se puede confirmar: los equipos rompen una dupla/trío.")
-                else:
-                    guardar_opcion(partido_id, equipo_actual)
-
-                    if obtener_camiseta_equipo(partido_id, 1) is None:
-                        asignar_camiseta_equipo(partido_id, 1, "clara")
-                    if obtener_camiseta_equipo(partido_id, 2) is None:
-                        asignar_camiseta_equipo(partido_id, 2, "oscura")
-
-                    st.success("Equipos confirmados y guardados en la base de datos.")
-                    st.session_state._equipos_opciones = None
-                    st.session_state._equipos_diffs = None
-                    st.session_state._equipos_actual = None
-                    st.session_state._equipos_page = 0
-                    st.rerun()
-            else:
-                st.error("Cada equipo debe tener exactamente 5 jugadores.")
-
-    if st.button("⬅️ Volver al menú principal", key="btn_back_bottom"):
-        st.session_state.admin_page = None
-        st.rerun()
+    from equipos_ui import panel_generacion as editor
+    editor()

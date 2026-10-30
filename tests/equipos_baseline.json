@@ -1,0 +1,902 @@
+[
+  {
+    "jugadores": [
+      {
+        "jugador_id": 1,
+        "nombre": "Jugador 01",
+        "elo": 700,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 1
+      },
+      {
+        "jugador_id": 2,
+        "nombre": "Jugador 02",
+        "elo": 777,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 2
+      },
+      {
+        "jugador_id": 3,
+        "nombre": "Jugador 03",
+        "elo": 854,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 3
+      },
+      {
+        "jugador_id": 4,
+        "nombre": "Jugador 04",
+        "elo": 931,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 4
+      },
+      {
+        "jugador_id": 5,
+        "nombre": "Jugador 05",
+        "elo": 1008,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 5
+      },
+      {
+        "jugador_id": 6,
+        "nombre": "Jugador 06",
+        "elo": 1085,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 6
+      },
+      {
+        "jugador_id": 7,
+        "nombre": "Jugador 07",
+        "elo": 1162,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 7
+      },
+      {
+        "jugador_id": 8,
+        "nombre": "Jugador 08",
+        "elo": 1239,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 8
+      },
+      {
+        "jugador_id": 9,
+        "nombre": "Jugador 09",
+        "elo": 1316,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 9
+      },
+      {
+        "jugador_id": 10,
+        "nombre": "Jugador 10",
+        "elo": 1393,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 10
+      }
+    ],
+    "opciones": [
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 06",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 03",
+        "Jugador 05",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 02",
+        "Jugador 04",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 05",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 01",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 02",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 07",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 03",
+        "Jugador 06",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 02",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 06",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 05",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 01",
+        "Jugador 04",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 03",
+        "Jugador 05",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 02",
+        "Jugador 04",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 01",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 09"
+      ]
+    ],
+    "diffs": [
+      77,
+      77,
+      77,
+      77,
+      77,
+      77,
+      77,
+      77,
+      77,
+      77,
+      77,
+      77
+    ]
+  },
+  {
+    "jugadores": [
+      {
+        "jugador_id": 1,
+        "nombre": "Jugador 01",
+        "elo": 700,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 1
+      },
+      {
+        "jugador_id": 2,
+        "nombre": "Jugador 02",
+        "elo": 777,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 2
+      },
+      {
+        "jugador_id": 3,
+        "nombre": "Jugador 03",
+        "elo": 854,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 3
+      },
+      {
+        "jugador_id": 4,
+        "nombre": "Jugador 04",
+        "elo": 931,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 4
+      },
+      {
+        "jugador_id": 5,
+        "nombre": "Jugador 05",
+        "elo": 1008,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 5
+      },
+      {
+        "jugador_id": 6,
+        "nombre": "Jugador 06",
+        "elo": 1085,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 6
+      },
+      {
+        "jugador_id": 7,
+        "nombre": "Jugador 07",
+        "elo": 1162,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 7
+      },
+      {
+        "jugador_id": 8,
+        "nombre": "Jugador 08",
+        "elo": 1239,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 8
+      },
+      {
+        "jugador_id": 9,
+        "nombre": "Jugador 09",
+        "elo": 1316,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 9
+      },
+      {
+        "jugador_id": 10,
+        "nombre": "Jugador 10",
+        "elo": 1393,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 10
+      }
+    ],
+    "opciones": [
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 06",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 05",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 07",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 06",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 07",
+        "Jugador 08",
+        "Jugador 09",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 10"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 07",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 04",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 05",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 08",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 06",
+        "Jugador 08",
+        "Jugador 09",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 10"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 08",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08"
+      ]
+    ],
+    "diffs": [
+      77,
+      77,
+      77,
+      77,
+      77,
+      231,
+      231,
+      231,
+      231,
+      231,
+      385,
+      385
+    ]
+  },
+  {
+    "jugadores": [
+      {
+        "jugador_id": 1,
+        "nombre": "Jugador 01",
+        "elo": 700,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 1
+      },
+      {
+        "jugador_id": 2,
+        "nombre": "Jugador 02",
+        "elo": 777,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 2
+      },
+      {
+        "jugador_id": 3,
+        "nombre": "Jugador 03",
+        "elo": 854,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 3
+      },
+      {
+        "jugador_id": 4,
+        "nombre": "Jugador 04",
+        "elo": 931,
+        "bloque": 2,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 4
+      },
+      {
+        "jugador_id": 5,
+        "nombre": "Jugador 05",
+        "elo": 1008,
+        "bloque": 2,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 5
+      },
+      {
+        "jugador_id": 6,
+        "nombre": "Jugador 06",
+        "elo": 1085,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 6
+      },
+      {
+        "jugador_id": 7,
+        "nombre": "Jugador 07",
+        "elo": 1162,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 7
+      },
+      {
+        "jugador_id": 8,
+        "nombre": "Jugador 08",
+        "elo": 1239,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 8
+      },
+      {
+        "jugador_id": 9,
+        "nombre": "Jugador 09",
+        "elo": 1316,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 9
+      },
+      {
+        "jugador_id": 10,
+        "nombre": "Jugador 10",
+        "elo": 1393,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 10
+      }
+    ],
+    "opciones": [
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 09",
+        "Jugador 10",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 08",
+        "Jugador 10",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 07",
+        "Jugador 10",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 08",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 08",
+        "Jugador 09",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 10"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 06",
+        "Jugador 10",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 08",
+        "Jugador 09"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 07",
+        "Jugador 09",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 08",
+        "Jugador 10"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 06",
+        "Jugador 09",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 08",
+        "Jugador 10"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 07",
+        "Jugador 08",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 09",
+        "Jugador 10"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 06",
+        "Jugador 08",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 07",
+        "Jugador 09",
+        "Jugador 10"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 08",
+        "Jugador 09",
+        "Jugador 10"
+      ],
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08",
+        "Jugador 09",
+        "Jugador 10"
+      ]
+    ],
+    "diffs": [
+      385,
+      539,
+      693,
+      693,
+      847,
+      847,
+      1001,
+      1001,
+      1155,
+      1309,
+      1925
+    ]
+  },
+  {
+    "jugadores": [
+      {
+        "jugador_id": 1,
+        "nombre": "Jugador 01",
+        "elo": 700,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 1
+      },
+      {
+        "jugador_id": 2,
+        "nombre": "Jugador 02",
+        "elo": 777,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 2
+      },
+      {
+        "jugador_id": 3,
+        "nombre": "Jugador 03",
+        "elo": 854,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 3
+      },
+      {
+        "jugador_id": 4,
+        "nombre": "Jugador 04",
+        "elo": 931,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 4
+      },
+      {
+        "jugador_id": 5,
+        "nombre": "Jugador 05",
+        "elo": 1008,
+        "bloque": 1,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 5
+      },
+      {
+        "jugador_id": 6,
+        "nombre": "Jugador 06",
+        "elo": 1085,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 6
+      },
+      {
+        "jugador_id": 7,
+        "nombre": "Jugador 07",
+        "elo": 1162,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 7
+      },
+      {
+        "jugador_id": 8,
+        "nombre": "Jugador 08",
+        "elo": 1239,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 8
+      },
+      {
+        "jugador_id": 9,
+        "nombre": "Jugador 09",
+        "elo": 1316,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 9
+      },
+      {
+        "jugador_id": 10,
+        "nombre": "Jugador 10",
+        "elo": 1393,
+        "bloque": null,
+        "confirmado": 0,
+        "equipo": null,
+        "camiseta": null,
+        "pj_id": 10
+      }
+    ],
+    "opciones": [
+      [
+        "Jugador 01",
+        "Jugador 02",
+        "Jugador 03",
+        "Jugador 04",
+        "Jugador 05",
+        "Jugador 06",
+        "Jugador 07",
+        "Jugador 08",
+        "Jugador 09",
+        "Jugador 10"
+      ]
+    ],
+    "diffs": [
+      1925
+    ]
+  }
+]

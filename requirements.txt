@@ -1,4 +1,4 @@
-streamlit
+streamlit>=1.37
 libsql>=0.1.0
 pandas
 numpy
