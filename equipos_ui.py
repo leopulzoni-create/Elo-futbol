@@ -1,6 +1,7 @@
 """Editor de equipos: interacciones locales y guardado explícito."""
 import hashlib
 import logging
+from html import escape
 
 import streamlit as st
 import equipos as core
@@ -75,9 +76,7 @@ def _editor(pid, jugadores, separados, activos):
     if confirmado:
         st.success('Equipos confirmados')
         equipo = [jid for lado in (1, 2) for jid in ids if por_id[jid]['equipo'] == lado]
-        _mostrar_equipos(equipo, por_id, camisetas=True)
-        with st.expander('Vista para compartir · sin ELO'):
-            _mostrar_equipos(equipo, por_id, camisetas=True, mostrar_elo=False)
+        _mostrar_equipos(equipo, por_id, camisetas=True, mostrar_elo=False)
         if st.button('↔️ Intercambiar camisetas', key=pref + '_camisetas'):
             guardar('camisetas', None)
         with st.expander('Rachas de camisetas'):
@@ -228,12 +227,28 @@ def _mostrar_equipos(actual, por_id, camisetas=False, mostrar_elo=True):
         total = int(sum(por_id[jid]['elo'] for jid in equipo))
         totales.append(total)
         with columna:
-            st.markdown(f'#### Equipo {lado+1} · {len(equipo)}/5')
+            st.markdown(f'#### Equipo {lado+1}' if camisetas else
+                        f'#### Equipo {lado+1} · {len(equipo)}/5')
             if mostrar_elo:
                 st.caption(f'{total} ELO')
             if camisetas:
                 camiseta = next((por_id[jid]['camiseta'] for jid in equipo if por_id[jid]['camiseta']), 'Sin asignar')
-                st.write(f'Camiseta: {camiseta}')
+                estilos = {
+                    'clara': ('#e0e0e0', '#222', '#bdbdbd', '⚪ Camiseta Clara'),
+                    'oscura': ('#222', '#fff', '#666', '⚫ Camiseta Oscura'),
+                }
+                fondo, texto, borde, etiqueta = estilos.get(
+                    camiseta, ('#757575', '#fff', '#999', 'Camiseta sin asignar'))
+                st.markdown(
+                    f'<span style="display:inline-block;padding:8px 14px;'
+                    f'border-radius:999px;font-weight:600;background:{fondo};'
+                    f'color:{texto};border:1px solid {borde};margin:4px 0 18px;">'
+                    f'{etiqueta}</span>', unsafe_allow_html=True)
+                items = ''.join(f'<li style="padding:8px 0;">{escape(str(por_id[jid]["nombre"]))}</li>'
+                                for jid in equipo)
+                st.markdown(f'<ul style="padding-left:24px;margin:0;">{items}</ul>',
+                            unsafe_allow_html=True)
+                continue
             for jid in equipo:
                 st.write(por_id[jid]['nombre'])
     if mostrar_elo:
