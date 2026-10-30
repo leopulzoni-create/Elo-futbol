@@ -220,23 +220,26 @@ def _editor(pid, jugadores, separados, activos):
 
 
 def _mostrar_equipos(actual, por_id, camisetas=False, mostrar_elo=True):
-    totales = []
+    totales = [int(sum(por_id[jid]['elo'] for jid in actual[lado*5:(lado+1)*5]))
+               for lado in range(2)]
     columnas = st.columns(2)
     for lado, columna in enumerate(columnas):
         equipo = actual[lado*5:(lado+1)*5]
-        total = int(sum(por_id[jid]['elo'] for jid in equipo))
-        totales.append(total)
+        total = totales[lado]
         with columna:
-            if camisetas:
-                st.markdown(f'#### Equipo {lado+1}')
-            else:
-                color = ('#60a5fa', '#fb923c')[lado]
-                st.markdown(
-                    f'<h4 style="border-left:4px solid {color};padding-left:12px;">'
-                    f'<span style="color:{color};" aria-hidden="true">●</span> Equipo {lado+1}</h4>',
-                    unsafe_allow_html=True)
+            color = ('#60a5fa', '#fb923c')[lado]
+            st.markdown(
+                f'<h4 style="color:{color};border-left:4px solid {color};padding-left:12px;">'
+                f'<span aria-hidden="true">●</span> Equipo {lado+1}</h4>',
+                unsafe_allow_html=True)
             if mostrar_elo:
-                st.caption(f'{total} ELO')
+                etiqueta = (
+                    '<span style="display:inline-block;margin-left:8px;padding:2px 8px;'
+                    'border:1px solid currentColor;border-radius:999px;font-size:0.75rem;">'
+                    'Mayor ELO</span>' if total > totales[1-lado] else '')
+                st.markdown(
+                    f'<div style="font-size:0.875rem;opacity:0.7;margin-bottom:16px;">'
+                    f'{total} ELO{etiqueta}</div>', unsafe_allow_html=True)
             if camisetas:
                 camiseta = next((por_id[jid]['camiseta'] for jid in equipo if por_id[jid]['camiseta']), 'Sin asignar')
                 estilos = {
