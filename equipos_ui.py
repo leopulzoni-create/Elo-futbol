@@ -227,8 +227,14 @@ def _mostrar_equipos(actual, por_id, camisetas=False, mostrar_elo=True):
         total = int(sum(por_id[jid]['elo'] for jid in equipo))
         totales.append(total)
         with columna:
-            st.markdown(f'#### Equipo {lado+1}' if camisetas else
-                        f'#### Equipo {lado+1} · {len(equipo)}/5')
+            if camisetas:
+                st.markdown(f'#### Equipo {lado+1}')
+            else:
+                color = ('#60a5fa', '#fb923c')[lado]
+                st.markdown(
+                    f'<h4 style="border-left:4px solid {color};padding-left:12px;">'
+                    f'<span style="color:{color};" aria-hidden="true">●</span> Equipo {lado+1}</h4>',
+                    unsafe_allow_html=True)
             if mostrar_elo:
                 st.caption(f'{total} ELO')
             if camisetas:
