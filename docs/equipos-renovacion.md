@@ -6,7 +6,7 @@ Cambios preparados sobre dev; pendientes de publicar y probar contra Turso remot
 - Aplicar altas/bajas juntas; mantener las confirmaciones de quienes continúan.
 - Grupos de 2 a 5 integrantes, sin campos separados para duplas/tríos.
 - Parejas que deben jugar separadas. Se filtran todas las combinaciones antes de elegir las mejores doce.
-- Selección directa de alternativas y dos columnas con intercambios individuales libres. Juntos/separados sólo condicionan las variantes generadas; el ajuste manual y su confirmación pueden ignorarlos, sin borrar las reglas.
+- Alternativas en tarjetas adaptables de a tres: en paralelo en computadora y apiladas en celular. Navegación anterior/siguiente que conserva el ajuste; selección directa con “Elegir y ajustar”. El editor mantiene dos columnas con intercambios individuales libres. Juntos/separados sólo condicionan las variantes generadas; el ajuste manual y su confirmación pueden ignorarlos, sin borrar las reglas.
 - Edición en un fragmento Streamlit: generar, elegir, intercambiar y restaurar no consulta la base.
 - Datos por partido; actualización explícita y comprobación de cambios simultáneos al guardar.
 - Conservar la vista de equipos sin ELO y consultar rachas bajo demanda con una consulta histórica agrupada.

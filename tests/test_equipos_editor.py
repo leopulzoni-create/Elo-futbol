@@ -172,9 +172,9 @@ class StoreTest(unittest.TestCase):
             self.assertFalse(app.exception, str(app.exception))
             self.assertTrue(any(b.label == '✅ Confirmar equipos' for b in app.button))
             # Cambiar de alternativa y separar un grupo mediante un intercambio individual.
-            selector = next(x for x in app.selectbox if x.label.startswith('Elegir alternativa'))
-            if len(selector.options) > 1:
-                selector.set_value(1).run()
+            if any(b.label == 'Elegir y ajustar' for b in app.button):
+                self.assertEqual(sum(m.value.count('class="eq-option-higher"') for m in app.markdown), 3)
+            next(b for b in app.button if b.label == 'Elegir y ajustar').click().run()
             self.assertFalse(app.exception, str(app.exception))
             estado = app.session_state['equipos_editor_1']
             anterior = estado['actual'][:]
@@ -235,7 +235,8 @@ _editor(1, jugadores, [], [])
             self.assertFalse(app.exception, str(app.exception))
             next(b for b in app.button if b.label == 'Generar opciones').click().run()
             self.assertFalse(app.exception, str(app.exception))
-            next(x for x in app.selectbox if x.label.startswith('Elegir alternativa')).set_value(1).run()
+            self.assertEqual(sum(m.value.count('class="eq-option-higher"') for m in app.markdown), 3)
+            next(b for b in app.button if b.label == 'Elegir y ajustar').click().run()
             self.assertFalse(app.exception, str(app.exception))
             estado = app.session_state['equipos_editor_1']
             a, b = estado['actual'][0], estado['actual'][5]
@@ -243,8 +244,44 @@ _editor(1, jugadores, [], [])
             next(x for x in app.multiselect if x.label == 'Mover del equipo 2').set_value([(b,)])
             next(x for x in app.button if x.label == '↔️ Intercambiar selección').click().run()
             self.assertFalse(app.exception, str(app.exception))
+            ajustado = app.session_state['equipos_editor_1']['actual'][:]
+            next(x for x in app.button if x.label == 'Siguientes →').click().run()
+            self.assertFalse(app.exception, str(app.exception))
+            self.assertEqual(app.session_state['equipos_editor_1']['actual'], ajustado)
+            self.assertEqual(app.session_state['equipos_editor_1']['pagina'], 1)
+            self.assertEqual(len([b for b in app.button if b.label == 'Elegir y ajustar']), 3)
+            next(x for x in app.button if x.label == '← Anteriores').click().run()
+            self.assertEqual(app.session_state['equipos_editor_1']['actual'], ajustado)
+            self.assertTrue(next(x for x in app.button if x.label == '← Anteriores').disabled)
             next(x for x in app.button if x.label == 'Restaurar alternativa').click().run()
             self.assertFalse(app.exception, str(app.exception))
+
+    @unittest.skipUnless(__import__('importlib.util', fromlist=['find_spec']).find_spec('streamlit'),
+                         'Requiere Streamlit para probar las tarjetas')
+    def test_partial_page_and_direct_card_selection(self):
+        from streamlit.testing.v1 import AppTest
+        app = AppTest.from_string("""
+import streamlit as st
+from equipos_ui import _mostrar_opciones
+ids = list(range(1,11))
+if 'cards' not in st.session_state:
+    opciones = [ids[i:] + ids[:i] for i in range(4)]
+    st.session_state.cards = dict(opciones=opciones, diffs=[0,10,20,30], actual=ids[:], elegida=0, revision=1)
+_mostrar_opciones(st.session_state.cards, {i:dict(nombre=f'Jugador {i}',elo=1000) for i in ids}, 'cards')
+""", default_timeout=15)
+        app.run()
+        self.assertFalse(app.exception, str(app.exception))
+        self.assertEqual(len([b for b in app.button if b.label in ('En ajuste', 'Elegir y ajustar')]), 3)
+        self.assertFalse(any('class="eq-option-higher"' in m.value for m in app.markdown))
+        next(b for b in app.button if b.label == 'Siguientes →').click().run()
+        self.assertFalse(app.exception, str(app.exception))
+        self.assertEqual(len([b for b in app.button if b.label == 'Elegir y ajustar']), 1)
+        self.assertTrue(next(b for b in app.button if b.label == 'Siguientes →').disabled)
+        next(b for b in app.button if b.label == 'Elegir y ajustar').click().run()
+        self.assertEqual(app.session_state['cards']['elegida'], 3)
+        seleccionado = app.session_state['cards']['actual'][:]
+        next(b for b in app.button if b.label == '← Anteriores').click().run()
+        self.assertEqual(app.session_state['cards']['actual'], seleccionado)
 
     def test_shirt_streaks_use_one_connection_and_existing_roster(self):
         self.save('roster', list(range(1, 11)))

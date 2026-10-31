@@ -164,18 +164,12 @@ def _editor(pid, jugadores, separados, activos):
                 st.error('No hay armados posibles con estas condiciones. Quitá o modificá alguna regla.')
             else:
                 estado.update(opciones=opciones, diffs=diffs, actual=opciones[0][:], elegida=0,
-                              revision=estado['revision'] + 1)
+                              pagina=0, revision=estado['revision'] + 1)
     if not estado['opciones']:
         return
-    indice = st.selectbox('Elegir alternativa · ordenadas de menor a mayor diferencia de ELO',
-                          list(range(len(estado['opciones']))),
-                          format_func=lambda i: f"Opción {i+1} · diferencia {estado['diffs'][i]} ELO",
-                          key=pref + f"_opcion_{estado['revision']}")
-    if indice != estado['elegida']:
-        estado['actual'] = estado['opciones'][indice][:]
-        estado['elegida'] = indice
-        estado.pop('error_swap', None)
-    st.caption('La primera es la más equilibrada. Elegir e intercambiar no guarda cambios en el partido.')
+    _mostrar_opciones(estado, por_id, pref)
+    indice = estado['elegida']
+    st.caption(f"Estás ajustando la opción {indice+1}. Navegar no cambia tu armado; elegir otra opción carga su distribución original.")
     st.markdown('### 4. Ajustar y confirmar')
     st.caption('El ajuste manual es libre: podés separar grupos o juntar jugadores marcados como separados. Las condiciones se conservan para generar nuevas alternativas.')
     actual = estado['actual']
@@ -218,6 +212,74 @@ def _editor(pid, jugadores, separados, activos):
     c1.button('Restaurar alternativa', key=pref + '_restaurar', on_click=restaurar)
     if c2.button('✅ Confirmar equipos', key=pref + '_confirmar', type='primary'):
         guardar('confirmar', estado['actual'])
+
+
+def _mostrar_opciones(estado, por_id, pref):
+    """Tres tarjetas por página. Los callbacks sólo actualizan estado local."""
+    opciones = estado['opciones']
+    paginas = (len(opciones) + 2) // 3
+    estado['pagina'] = min(max(estado.get('pagina', 0), 0), paginas - 1)
+    pagina = estado['pagina']
+    inicio = pagina * 3
+    fin = min(inicio + 3, len(opciones))
+    st.caption(f'Opciones {inicio+1}–{fin} de {len(opciones)} · Página {pagina+1}/{paginas}')
+    # El marcador limita el ajuste móvil a esta fila; no afecta al editor ni al menú.
+    st.markdown("""
+<style>
+.eq-option-title { font-size:1.1rem; font-weight:700; margin-bottom:6px; }
+.eq-option-diff { font-weight:600; margin-bottom:18px; }
+.eq-option-team { font-weight:650; border-left:3px solid; padding-left:8px; margin:14px 0 6px; }
+.eq-option-higher { font-size:0.65rem; opacity:0.7; margin-left:5px; vertical-align:middle; }
+.eq-option-names { list-style:none; padding:0; margin:0; overflow-wrap:anywhere; }
+.eq-option-names li { padding:3px 0; line-height:1.4; }
+@media (max-width:760px) {
+    [data-testid="stHorizontalBlock"]:has([data-equipos-opcion]) { flex-direction:column; }
+    [data-testid="stHorizontalBlock"]:has([data-equipos-opcion]) > [data-testid="stColumn"] {
+        width:100% !important; flex:1 1 100% !important; min-width:0 !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+    def elegir(indice):
+        estado['actual'] = opciones[indice][:]
+        estado['elegida'] = indice
+        estado.pop('error_swap', None)
+
+    def navegar(destino):
+        estado['pagina'] = destino
+
+    columnas = st.columns(fin - inicio)
+    for indice, columna in zip(range(inicio, fin), columnas):
+        opcion = opciones[indice]
+        seleccionada = indice == estado['elegida']
+        with columna:
+            with st.container(border=True):
+                titulo = f'Opción {indice+1}' + (' · En ajuste' if seleccionada else '')
+                html = (f'<div data-equipos-opcion="{indice+1}">'
+                        f'<div class="eq-option-title">{titulo}</div>'
+                        f'<div class="eq-option-diff">Diferencia: {estado["diffs"][indice]} ELO</div>')
+                totales = [int(sum(por_id[jid]['elo'] for jid in opcion[lado*5:(lado+1)*5]))
+                           for lado in range(2)]
+                for lado, color in enumerate(('#60a5fa', '#fb923c')):
+                    equipo = opcion[lado*5:(lado+1)*5]
+                    total = totales[lado]
+                    indicador = ('<span class="eq-option-higher" title="Mayor ELO" aria-label="Mayor ELO">▲</span>'
+                                 if total > totales[1-lado] else '')
+                    html += (f'<div class="eq-option-team" style="color:{color};border-color:{color};">'
+                             f'Equipo {lado+1} · {total} ELO{indicador}</div><ul class="eq-option-names">')
+                    html += ''.join(f'<li>{escape(str(por_id[jid]["nombre"]))}</li>' for jid in equipo)
+                    html += '</ul>'
+                st.markdown(html + '</div>', unsafe_allow_html=True)
+                st.button('En ajuste' if seleccionada else 'Elegir y ajustar',
+                          key=pref + f"_elegir_{estado['revision']}_{indice}",
+                          disabled=seleccionada, use_container_width=True,
+                          on_click=elegir, args=(indice,))
+    anterior, siguiente = st.columns(2)
+    anterior.button('← Anteriores', key=pref + '_anteriores', disabled=pagina == 0,
+                    on_click=navegar, args=(pagina-1,), use_container_width=True)
+    siguiente.button('Siguientes →', key=pref + '_siguientes', disabled=pagina == paginas-1,
+                     on_click=navegar, args=(pagina+1,), use_container_width=True)
 
 
 def _mostrar_equipos(actual, por_id, camisetas=False, mostrar_elo=True):
