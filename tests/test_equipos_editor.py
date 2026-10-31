@@ -123,8 +123,18 @@ class StoreTest(unittest.TestCase):
         self.save('roster', list(range(1, 11)))
         self.save('reglas', ([], [(1, 2)]))
         with self.assertRaises(ValueError):
-            self.save('confirmar', list(range(1, 11)))
+            self.save('confirmar', [1, 1] + list(range(3, 11)))
         self.assertTrue(all(j['equipo'] is None for j in store.cargar(1)[0]))
+
+    def test_manual_confirmation_can_override_both_rules(self):
+        self.save('roster', list(range(1, 11)))
+        self.save('reglas', ([[1, 6]], [(1, 2)]))
+        self.save('confirmar', list(range(1, 11)))
+        jugadores, separados, _ = store.cargar(1)
+        self.assertEqual([j['equipo'] for j in jugadores], [1]*5 + [2]*5)
+        # Las reglas persisten para la próxima generación.
+        self.assertEqual(grupos_actuales(jugadores), [[1, 6]])
+        self.assertEqual(separados, [(1, 2)])
 
     @unittest.skipUnless(__import__('importlib.util', fromlist=['find_spec']).find_spec('streamlit'),
                          'Requiere Streamlit para probar la pantalla')
@@ -161,7 +171,7 @@ class StoreTest(unittest.TestCase):
             next(b for b in app.button if b.label == 'Generar opciones').click().run()
             self.assertFalse(app.exception, str(app.exception))
             self.assertTrue(any(b.label == '✅ Confirmar equipos' for b in app.button))
-            # Cambiar de alternativa y hacer un intercambio válido usando grupos completos.
+            # Cambiar de alternativa y separar un grupo mediante un intercambio individual.
             selector = next(x for x in app.selectbox if x.label.startswith('Elegir alternativa'))
             if len(selector.options) > 1:
                 selector.set_value(1).run()
@@ -170,8 +180,8 @@ class StoreTest(unittest.TestCase):
             anterior = estado['actual'][:]
             from equipos_logic import unidades_equipo
             grupos = grupos_actuales(store.cargar(1)[0])
-            unidades1 = unidades_equipo(anterior[:5], grupos)
-            unidades2 = unidades_equipo(anterior[5:], grupos)
+            unidades1 = unidades_equipo(anterior[:5], [])
+            unidades2 = unidades_equipo(anterior[5:], [])
             seleccion_swap = None
             for a in unidades1:
                 for b in unidades2:
@@ -182,9 +192,9 @@ class StoreTest(unittest.TestCase):
                     try:
                         validar_equipos(candidato[:5], candidato[5:], range(1, 11), grupos, [(1, 6)])
                     except ValueError:
-                        continue
-                    seleccion_swap = (a, b, candidato)
-                    break
+                        seleccion_swap = (a, b, candidato)
+                        break
+                    continue
                 if seleccion_swap:
                     break
             self.assertIsNotNone(seleccion_swap)

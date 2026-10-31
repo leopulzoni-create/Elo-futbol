@@ -1,6 +1,6 @@
 """Lecturas agrupadas y escrituras atómicas para el editor de equipos."""
 from db import get_connection
-from equipos_logic import fingerprint, grupos_actuales, validar_reglas, validar_equipos
+from equipos_logic import fingerprint, validar_reglas, validar_equipos
 
 
 ROSTER_SQL = '''SELECT pj.id AS pj_id, j.id AS jugador_id, j.nombre,
@@ -103,7 +103,8 @@ def guardar(partido_id, jugadores_previos, separados_previos, accion, datos, aut
             cur.executemany('INSERT INTO equipo_separados VALUES(?, ?, ?)',
                             [(partido_id, *sorted(pair)) for pair in {tuple(sorted(p)) for p in pares}])
         elif accion == 'confirmar':
-            validar_equipos(datos[:5], datos[5:], ids, grupos_actuales(actuales), separados)
+            # Las condiciones guían la generación; el ajuste manual puede ignorarlas.
+            validar_equipos(datos[:5], datos[5:], ids, [], [])
             cur.executemany('UPDATE partido_jugadores SET equipo=?, camiseta=? WHERE partido_id=? AND jugador_id=?',
                             [(1 if i < 5 else 2, 'clara' if i < 5 else 'oscura', partido_id, jid)
                              for i, jid in enumerate(datos)])

@@ -177,6 +177,7 @@ def _editor(pid, jugadores, separados, activos):
         estado.pop('error_swap', None)
     st.caption('La primera es la más equilibrada. Elegir e intercambiar no guarda cambios en el partido.')
     st.markdown('### 4. Ajustar y confirmar')
+    st.caption('El ajuste manual es libre: podés separar grupos o juntar jugadores marcados como separados. Las condiciones se conservan para generar nuevas alternativas.')
     actual = estado['actual']
     _mostrar_equipos(actual, por_id)
     swap_key = pref + f"_swap_{estado['revision']}_{indice}_{repr(actual)}"
@@ -186,11 +187,11 @@ def _editor(pid, jugadores, separados, activos):
         mover2 = [jid for g in st.session_state.get(swap_key + '_b', []) for jid in g]
         try:
             if not mover1 or len(mover1) != len(mover2):
-                raise ValueError('Elegí la misma cantidad de jugadores de cada lado. Los grupos se mueven completos.')
+                raise ValueError('Elegí la misma cantidad de jugadores de cada lado.')
             anterior = estado['actual']
             nuevo = ([j for j in anterior[:5] if j not in mover1] + mover2 +
                      [j for j in anterior[5:] if j not in mover2] + mover1)
-            validar_equipos(nuevo[:5], nuevo[5:], ids, grupos, separados)
+            validar_equipos(nuevo[:5], nuevo[5:], ids, [], [])
         except ValueError as exc:
             estado['error_swap'] = str(exc)
         else:
@@ -200,10 +201,10 @@ def _editor(pid, jugadores, separados, activos):
     with st.form(swap_key):
         c1, c2 = st.columns(2)
         with c1:
-            st.multiselect('Mover del equipo 1', unidades_equipo(actual[:5], grupos),
+            st.multiselect('Mover del equipo 1', unidades_equipo(actual[:5], []),
                            format_func=lambda g: ' + '.join(nombres[j] for j in g), key=swap_key + '_a')
         with c2:
-            st.multiselect('Mover del equipo 2', unidades_equipo(actual[5:], grupos),
+            st.multiselect('Mover del equipo 2', unidades_equipo(actual[5:], []),
                            format_func=lambda g: ' + '.join(nombres[j] for j in g), key=swap_key + '_b')
         st.form_submit_button('↔️ Intercambiar selección', on_click=intercambiar)
     if estado.get('error_swap'):
